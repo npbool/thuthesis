@@ -33,12 +33,12 @@ HMM是一个生成模型，但它的两个假设有时并不合理。当数据�
 \end{equation}
 $f()$是定义在类标和观察值上的特征函数。
 
-MEMM虽然不需要输出独立性假设，但由于MEMM只在局部做归一化\ref{eqn:memm}，状态概率分布不平衡，存在标注偏置问题(label bias problem)。条件随机场（CRF）\cite{lafferty2001conditional}解决了这一问题，是当前应用最广泛的序列标注模型。CRF和MEMM的区别有：1，$y_i$不仅和$y_{j<i}$有关，而且和$y_{j>i}$有关；2，CRF是一个无向图模型，而MEMM是有向图模型；3，CRF做全局归一化，而不是局部归一。在一阶线性CRF中，
+MEMM虽然不需要输出独立性假设，但由于MEMM只在局部做归一化\ref{eqn:memm}，状态概率分布不平衡，存在标注偏置问题(label bias problem)。条件随机场（CRF）\cite{lafferty2001conditional}解决了这一问题。CRF和MEMM的区别有：1，$y_i$不仅和$y_{j<i}$有关，而且和$y_{j>i}$有关；2，CRF是一个无向图模型，而MEMM是有向图模型；3，CRF做全局归一化，而不是局部归一。在一阶线性CRF中，
 \[ p({\bf{y}}|{\bf{x}}) = \frac{1}{Z}\exp (\sum\limits_i {\sum\limits_j {{\lambda _j}{f_j}({y_i},{y_{i - 1}},{\bf{x}},i)} } \]
 $Z$为归一化常数，	
 \[{\rm{Z = }}\sum\limits_{{\bf{y'}}} {\exp (\sum\limits_i {\sum\limits_j {{\lambda _j}{f_j}({y_i},{y_{i - 1}},{\bf{x}},i)} } }) \]
 
-进一步我们希望知道两个命名实体之间的关系。它可以自然地转化为一个分类问题，预定义关系类别的集合，对于共同出现的两个实体，对其关系进行分类。使用的特征包括词法、语法上下文\cite{kambhatla2004combining}, 背景知识\cite{guodong2005exploring}\cite{chan2010exploiting}等。
+CRF是当前使用最广泛的信息抽取模型，并且在此基础上有许多工作对其进行发展。例如，为了克服CRF难以引入长程特征的问题，Sarawagi\cite{sarawagi2004semi}提出了Semi-Markov CRF，它可以在较低的计算消耗下，达到和高阶CRF相似的预测能力。
 
 \begin{figure}[h]
 \centering
@@ -61,15 +61,45 @@ $Z$为归一化常数，
 \label{fig:seq_label_model}
 \end{figure}
 
+\section{本体学习和概念层次构建}
+本体学习(Ontology Learning)是从自然语言文本中自动抽取概念及其关系的过程，它与信息抽取有着密切的联系，但是本文关注其中的一个重要子任务，将抽取出的概念组织为层次化的分类系统(hierarchy induction)。话题层次、概念层次是对数据不同粒度上的组织，有许多重要应用，如基于本体的个性化Web搜索和浏览\cite{gauch2003ontology}。对概念进行层次化的建模，可以使用基于统计或基于词法、语法模式的方法。当前大多数的工作集中于挖掘上下位关系，即is-a关系。Rion Snow\cite{snow2004learning}提出了一个上下位关系的学习模型。对于给定的两个词$c_i,c_j$,他首先找到语料中包含这两个词的所有句子，并进行句法解析得到依赖树，随后基于语法特征训练分类器，预测两个词之间是否存在上下位关系。Roberto Navigli\cite{navigli2011graph}提出了一种新颖的基于图的方法。他首先将不同的概念组织成有向图，这张图可能是稠密、带环甚至是不连通的，图的边表示概念的关系，可以用之前的方法生成。随后从最一般的概念开始，寻找最优分支，修剪有噪声的边，得到分类层次。在重构WordNet中的实验结果由于目前的分类层次。
 
-\section{本体学习}
-本体学习(Ontology Learning)
+这些传统的层次构建方法均需要一个领域相关的语料。但不足在于，
+\begin{enumerate}
+\item 与目标领域高度相关的语料常常是难以获得的，例如，``计算机科学''相关的语料库很容易获得，但仅和``模式识别''相关的语料就不容易了；并且我们常常关注崭新的、不断变化的领域，相关语料更难以获得。
+\item 为了构建概念之间的关系，常常要从中找出一些语言模式。而高质量的模式是稀疏的，尤其是语料不足时。
+\end{enumerate}
+Xueqing Liu\cite{liu2012automatic}提出了一种无需语料库的、基于关键词集合的层次构建方法。对于每个关键词，从知识库中获取相关概念，并从搜索引擎中获取上下文信息，然后基于贝叶斯的层次聚类方法得到新的类别层次。
 
+而在本文的工作中，与现有的工作不同，我们关注的表示人类日常活动的动词短语,而不是传统意义上的实体，因此需要加以修改。Chi Wang\cite{wang2013phrase}提出了基于共现的对短语进行层次话题挖掘的框架。对本文的工作有很大启发。
+
+\section{活动挖掘}
+现阶段，对用户活动进行挖掘的工作十分有限。可以找到的工作有Nguyen Minh The以及Keun Chan Park\cite{park2010detecting}。Nguyen\cite{the2010automatic}\cite{kawamura2010human}提出了使用了自监督条件随机场(self-supervised CRF)从博客中挖掘用户活动的系统，目标在于抽取活动的基本属性：参与者(actor)， 动作(action)， 对象(object)， 时间(time)，地点（location）。Nguyen工作的特点在于，借助了语法正确，易于解析的维基百科中人物类目的语料，通过语法模板进行自动标注，作为训练数据，训练CRF抽取模型。这个系统包含两个模块
+\begin{enumerate}
+\item 自监督学习模块
+\item 活动抽取模块
+\end{enumerate}
+如图\ref{fig:nguyen_frameword}所示
+\begin{figure}[!h]
+\centering
+\includegraphics[width=\textwidth]{arch_Nguyen}
+\caption{Nguyen的活动抽取框架}
+\label{fig:nguyen_frameword}
+\end{figure}
+
+主要步骤如下
+\begin{itemize}
+\item 对维基百科的语料进行分词、词性标注和句法解析，得到词性标签和短语依赖关系,如动词短语(VP), 名词短语(NP),命名实体。
+\item 使用Google Map API进行地点标注。
+\item 手动设计一系列的语法模板，如``S, \{O,C\}, V'',``\{O, C\}, V, S''，其中S表示主语，O表示对象，V表示动作，C表示补语。根据这些语法模板，可以获得包含活动的句子，并标注活动的参与者，动作和对象。
+\item 使用以上步骤得到的语料，训练CRF，获得一系列特征函数。
+\item 在活动抽取模块中，使用训练的到的CRF模型解析，获得抽取结果。
+\end{itemize}
+
+但是Nguyen的工作关注的是博客(Weblog)内容的抽取，博客和微博的形式有比较大的区别，一方面，博客长度没有限制，一般是对一个活动的完整叙述，信息完整；另一方面，博客的写作也更加严谨，语法结构比较正式。此外，这个系统仅仅关注信息的抽取，并没有对活动进行更进一步的挖掘。因此，他的工作难以直接应用于本文的工作。本文从短语着手，并充分利用了微博的元信息，克服了这些问题。
 
 \section{知识库}
 知识库是对人类知识的结构化表示，它在搜索、智能系统中有着日益重要的应用，Google，Microsoft以及国内百度、搜狗等互联网企业均有自己的知识图谱计划。下面是常见知识库概况的一个总结。
-\section{活动挖掘}
-在活动挖掘方面，已有的工作非常有限。
 
 \begin{table}[!h]
 \begin{tabular}[0.7\textwidth]{|l|p{2cm}|l|p{4cm}|}
