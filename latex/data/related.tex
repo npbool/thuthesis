@@ -16,13 +16,29 @@
 \begin{problem}[序列标注]
 已知观察值${\bf{x}} = ({x_1},{x_2}, \ldots {x_n})$，求最优序列标注${\bf{y^*}} = ({y_1},{y_2}, \ldots {y_n})$, 使得${{\bf{y}}^*} = \arg {\max _{\bf{y}}}P({\bf{y}}|{\bf{x}})$.
 \end{problem}
-在隐马尔科夫模型（HMM）中，对序列的生成过程做了马尔科夫假设，每个类标$y_i$仅由前一个类标$y_{i-1}$和$x_{i-1}$生成，每个观察值仅由该类标生成。转移概率可以在语料中进行频度估计，
+在隐马尔科夫模型（HMM）中，对序列的生成过程做了两个假设。1，马尔科夫假设，即每个类标$y_i$仅由前一个类标$y_{i-1}$生成；2，输出独立性假设，输出观察值之间严格独立。状态的转移概率可以在语料中进行频度估计，如
 \[
 p(y_i=c|y_{i-1} = c, x_{i-1}=w) = \frac{n(c_1, c_2, w)}{n(c_2, w)}
 \]
 为了避免数据稀疏性的问题，可以加入必要的光滑。
 
-HMM是一个生成模型，但数据较充足时，直接对$P(y|x)$进行建模的判别模型可能有更低的预测误差。\cite{mccallum2000maximum}将最大熵马尔科夫模型（MEMM）应用于信息抽取。在MEMM中，类标$y_i$依赖于附近的观察值$x_{i - l}^{i + l} = ({x_{i - l}},{x_{i - l + 1}}, \ldots ,{x_{i + l}})$和之前若干个类标
+HMM是一个生成模型，但它的两个假设有时并不合理。当数据较充足时，直接对$P(y|x)$进行建模的判别模型可能有更低的预测误差。McCallum等人将最大熵马尔科夫模型（MEMM）应用于信息抽取\cite{mccallum2000maximum}，修正了观察值之间严格独立的假设。在MEMM中，同样有马尔科夫假设，类标$y_i$依赖于附近的观察值$x_{i - l}^{i + l} = ({x_{i - l}},{x_{i - l + 1}}, \ldots ,{x_{i + l}})$和之前若干个类标$y_{i - k}^{i - 1} = ({y_{i - k}},{y_{i - k + 1}}, \ldots ,{y_{i - 1}})$:
+
+\[p({\bf{y}}|{\bf{x}}) = \prod\limits_i {p({y_i}|y_{i - k}^{i - 1},x_{i - l}^{i + l})} \]
+
+其中
+\begin{equation}
+{p({y_i}|y_{i - k}^{i - 1},x_{i - l}^{i + l})} = \frac{{\exp \left( {\sum\limits_j {{\lambda _j}{f_j}({y_i}} ,y_{i - k}^{i - 1},x_{i - l}^{i{\rm{ + }}l})} \right)}}{{\sum\limits_{y'} {\exp \left( {\sum\limits_j {{\lambda _j}{f_j}(y'} ,y_{i - k}^{i - 1},x_{i - l}^{i{\rm{ + }}l})} \right)} }} 
+\label{eqn:memm}
+\end{equation}
+$f()$是定义在类标和观察值上的特征函数。
+
+MEMM虽然不需要输出独立性假设，但由于MEMM只在局部做归一化\ref{eqn:memm}，状态概率分布不平衡，存在标注偏置问题(label bias problem)。条件随机场（CRF）\cite{lafferty2001conditional}解决了这一问题，是当前应用最广泛的序列标注模型。CRF和MEMM的区别有：1，$y_i$不仅和$y_{j<i}$有关，而且和$y_{j>i}$有关；2，CRF是一个无向图模型，而MEMM是有向图模型；3，CRF做全局归一化，而不是局部归一。在一阶线性CRF中，
+\[ p({\bf{y}}|{\bf{x}}) = \frac{1}{Z}\exp (\sum\limits_i {\sum\limits_j {{\lambda _j}{f_j}({y_i},{y_{i - 1}},{\bf{x}},i)} } \]
+$Z$为归一化常数，	
+\[{\rm{Z = }}\sum\limits_{{\bf{y'}}} {\exp (\sum\limits_i {\sum\limits_j {{\lambda _j}{f_j}({y_i},{y_{i - 1}},{\bf{x}},i)} } }) \]
+
+进一步我们希望知道两个命名实体之间的关系。它可以自然地转化为一个分类问题，预定义关系类别的集合，对于共同出现的两个实体，对其关系进行分类。使用的特征包括词法、语法上下文\cite{kambhatla2004combining}, 背景知识\cite{guodong2005exploring}\cite{chan2010exploiting}等。
 
 \begin{figure}[h]
 \centering
@@ -30,12 +46,12 @@ HMM是一个生成模型，但数据较充足时，直接对$P(y|x)$进行建模
 \includegraphics[width=\textwidth]{HMM.png}
 \caption{HMM}
 \end{subfigure}
-\qquad
+
 \begin{subfigure}{0.3\textwidth}
 \includegraphics[width=\textwidth]{MEMM.png}
 \caption{MEMM}
 \end{subfigure}
-\qquad
+
 \begin{subfigure}{0.3\textwidth}
 \includegraphics[width=\textwidth]{CRF.png}
 \caption{CRF}
