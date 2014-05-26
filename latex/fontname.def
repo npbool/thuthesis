@@ -2,13 +2,13 @@
 % This file is modified from ctex's ctex-xecjk-winfonts.def.
 
 \ProvidesFile{fontname.def}
-\setCJKmainfont[BoldFont={SimHei},ItalicFont={KaiTi}]{SimSun}
+\setCJKmainfont[BoldFont={SimHei},ItalicFont={KaiTi_GB2312}]{SimSun}
 \setCJKsansfont{SimHei}
 \setCJKmonofont{FangSong}
 
 \setCJKfamilyfont{zhsong}{SimSun}
 \setCJKfamilyfont{zhhei}{SimHei}
-\setCJKfamilyfont{zhkai}{KaiTi}
+\setCJKfamilyfont{zhkai}{KaiTi_GB2312}
 \setCJKfamilyfont{zhfs}{FangSong}
 \setCJKfamilyfont{zhli}{LiSu}
 \setCJKfamilyfont{zhyou}{YouYuan}
