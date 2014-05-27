@@ -29,14 +29,33 @@
 \item 对于给定的地点，推荐当地最热门的活动。
 \end{enumerate}
 
+我们在两个层面上研究日常活动。其中，活动的概念是抽象意义上的活动类别，定义为
+\begin{definition}[活动概念(Activity Concept)]
+活动的概念$c$是表示人类日常活动的动词短语，即二元组<动作(action)，目标(object)>。其中，动作为动词，目标为名词。对于某些活动，目标可以为空,以O表示。例如，以下均为合法的活动。
+\begin{itemize}
+\item <吃,烤鸭>
+\item <参加,会议>
+\item <游泳,O>
+\item <旅游,O>
+\end{itemize}
+\label{def:concept}
+\end{definition}
+
+而活动的实例是活动概念的具体化，包含活动的概念(类别)以及相关属性，定义为
+\begin{definition}[活动实例(Activity Instance)]
+活动实例为五元组$a=<c, u, s, p, t>$, 其中$c$表示活动的概念，$u$为活动的执行者，$p$为发生的地点，$s$为用户的情感倾向，$t$为发生的时间。
+\end{definition}
+
 在系统构建过程中，我们需要解决以下问题：
 
-\begin{enumerate}
-\item 如何从社交媒体中抽取活动的抽象概念表示。
-\item 如何对一条用户发布的信息，构建活动的实例。包括活动概念，情感、地点、时间等相关属性。
-\item 如何建模活动之间的关系。我们希望构建一个层次结构，活动之间的关系有不同的类型，例如``A is-a B''，表示B是A概念的外延（如``吃早饭''和``吃饭''）；``A follows B''表示A常在B之后依次进行。
-\item 如何对得到的知识进行高效地存贮、检索和可视化。
-\end{enumerate}
+\begin{problem}[活动挖掘]
+\begin{itemize}
+\item 从社交媒体的预料中中抽取活动的抽象概念表示。
+\item 对一条用户发布的信息，构建活动的实例。包括活动概念，情感、地点、时间等相关属性。
+\item 建模活动之间的关系。我们希望构建一个层次结构，活动之间的关系有不同的类型，例如``A is-a B''，表示B是A概念的外延（如``吃早饭''和``吃饭''）；``A follows B''表示A常在B之后依次进行。
+\item 对得到的知识进行高效地存贮、检索和可视化。
+\end{itemize}
+\end{problem}
 
 虽然社交媒体相比其他Web数据有诸多优势，其本身的特点也给我们的工作提出了许多挑战：
 
@@ -67,7 +86,7 @@
 \caption{论文组织}
 \label{fig:organ}
 \begin{center}
-\includegraphics[width=0.7\textwidth]{organ.png}
+\includegraphics[width=0.5\textwidth]{organ.png}
 \end{center}
 \end{figure}
 

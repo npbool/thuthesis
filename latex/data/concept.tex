@@ -1,31 +1,108 @@
 
 \chapter{活动概念抽取}
 \section{数据来源}
-本文的工作基于新浪微博的数据。我们随机选取了100个用户作为种子，并获取他们的关注者和关注他们的人。
+本文的工作基于新浪微博的数据。我们随机选取了100个用户作为种子，并获取他们的关注者和关注他们的人，以此为核心进行广度优先搜索。对每个用户，抓取其最近的1000条微博。表\ref{table:weibo_stat}是微博数据的一些信息：
+\begin{table}[!h]
+\centering
+\begin{tabular}{|c|p{4cm}|}
+\hline
+用户数 & 1,787, 443 \\
+\hline
+微博数 & ~10亿 \\
+\hline 
+关注关系 & 40亿 \\
+\hline 
+用户信息 & 名字、性别、关注者，被关注者， 创建时间等 \\
+\hline
+微博信息 & 创建时间、评论数、转发数、原始微博、地理信息等 \\
+\hline
+\end{tabular}
+\caption{微博数据概况}
+\label{table:weibo_stat}
+\end{table}
 
-\section{分词及词性标注}
-中文分词一直自然语言处理中很基础的一步，常用的中文分词工具，如哈工大的LTP，中科院的ICTCLAS， Stanford Parser，实际应用中都难以做到非常高的准确度，尤其是在微博这种格式自由，用语不规范的文本中。综合比较各个工具的速度、精度后，我选择了ICTCLAS作为分词工具。
+\section{候选集抽取}
+\subsection{分词与词性标注}
 
-\section{短语抽取}
-一项活动通常以一个动词（如睡觉，游泳，跑步）或者一个动词和一个名词对象组成的动宾短语（如吃午饭，去学校，打篮球）表示。为了挖掘出微博中表达的活动，我们需要将频繁出现的短语抽取出来，以待进一步处理。
+由于中文没有天然的词边界，分词在处理中文语料是是基础的一步，也是重要的研究领域。常用的中文分词工具，如哈工大的LTP，中科院的ICTCLAS，Stanford Parser，实际应用中都难以做到非常高的准确度，尤其是在微博这种格式自由的文本中。综合比较各个工具的速度、精度后，我选择了ICTCLAS作为分词工具，同时对分出的词进行词性标注，并将常见的错误分词加入用户词典中提高分词精度。
 
-最简单的方法是，遍历语料，统计所有动词短语（包括单独的动词，相邻的动词和名词）的频度，按照词频保留TopK个。这样做有两个问题
+\subsection{短语抽取}
+依照我们对活动概念的定义\ref{def:concept}，活动是单独的动词或一动宾结构的短语。为了挖掘出微博中表达的活动，我们需要将频繁出现的动词及短语抽取出来，以待进一步处理。
+
+最简单的方法是，遍历语料，统计单独的动词，相邻的动词、名词的bigram的频度，按照词频保留TopK个。但这中简单的方法有一些问题
 \begin{itemize}
-\item 受停用词影响很大。汉语中的一些停用词，如``是'', 常被归为动词。另一些虽然不是传统意义上的停用词，一般不做为一个动作，而是副词，如``完''”，``过'' 但经常出现在动词短语中，如``做完作业''，``吃过午饭''等，干扰短语的识别。这些词的数量有限，可以简单总结，扩充已有的停用词典，预先进行过滤。
-\item 目标短语在文本中可能不是连续的。除了上面举过的例子之外，动词和名词之间可能包含一些更复杂的语言成分，如``买了一件衣服'', ``参加学校举办的比赛''。由于当前的目标是抽取常见的动词短语，而并不关注单句话的精确解析，因此可以忽略过于复杂的情况，将一些常见情形总结成规则进行匹配。
-\item 倾向于选取包含高频词的短语。多次同时在一起的动词、名词组合不一定是一个合法的短语，而仅仅基于词频选取短语，会倾向于包含高频词的词组。如果一个词出现次数非常高，它随机地和其他词语一起出现的次数也相应增加，导致抽取结果中包含很多噪声。为了解决这一问题，我们衡量两个词$<w_i, w_j>$构成词组概率为
-$\frac{P(<w_i, w_j>)}{P(w_i)P(w_j)}$, 同时限定$n_{<w_i,w_j>} > min_support$.最后，我们按照$ln(n_{<w_i, w_j>}) + \lambda\frac{P(<w_i, w_j>)}{P(w_i)P(w_j)}$递减选取了160,000条候选短语。
+\item 受停用词影响大。同英语语言一样，汉语中也存在一些停用词，如``是'',``在'', 在进行词性标注时被标注为动词，但并不表示一个实际动作。另一些虽然不是传统意义上的停用词，一般不做为一个动作，而是副词，如``完''”，``过'' 但经常出现在动词短语中，如``做完作业''，``吃过午饭''等。这些词常常词频很高，它们组成的短语数量多且排序高。
+\item 表示活动的短语在文本中可能不是连续的。除了上面举过的例子之外，动词和名词之间可能包含一些更复杂的修饰成分，如``买了一件衣服'', ``参加学校举办的比赛''。对于这些情况，简单抽取相邻的动词、名词组成的bigram就会产生遗漏。
+\item 倾向于选取包含高频词的短语，易受噪声影响。高频词会更多地和其他词随机共同出现，但并不构成一个短语。如果基于频度选取短语，会倾向于包含高频词的词组，无法将这种情况区分出来。
 \end{itemize}
 
+对于问题一，我们使用一个中文停用词词典，包含1220个停用词，对抽取结果进行过滤。对于问题二，我们的目标在于抽取常见的动词短语，而并不关注句法的精确解析，因此不需要很高的召回率，我们根据词性标签和词本身设计一些抽取规则，可以处理简单的包含数词、量词的情况。
+
+对于问题三，一方面，一个短语应该出现足够多的次数，否则，它更有可能是随机噪声；另一方面，如果我们把词$w_i$是否出现作为随机变量$x_i$, 那么，如果$<w_i, w_j>$构成短语，那么$x_i$, $x_j$应该有比较强的相关性。相关性检验可以借助统计中的$\chi^2$检验。令$a=n(<w_i, w_j>), b=n(<w_i, \bar{w_j}), c=n(<\bar{w_i}, w_j), d=n(<\bar{w_i}, \bar{w_j}>), n=a+b+c+d$,如表\ref{table:chi}, $\chi^2$计算如下：
+\begin{equation}
+\chi^2 = \frac{n(ad-bc)^2}{(a+b)(c+d)(a+c)(b+d)}
+\label{eqn:chi}
+\end{equation}
+
+\begin{table}
+\centering
+\begin{tabular}{|c|c|c|c|}
+\hline
+				& $w_j$ & $\bar{w_j}$	&	$sum$ \\
+\hline
+$w_i$ 			& $a$	& $b$ 			& $a+b$ \\
+\hline
+$\bar{w_i}$ 	& $c$	& $d$ 			& $c+d$ \\
+\hline
+$sum$ 			& $a+c$	& $b+d$ 		& $n=a+b+c+d$ \\
+\hline
+\end{tabular}
+\caption{$\chi^2$检验}
+\label{table:chi}
+\end{table}
+
+据此，可得到短语抽取算法\ref{alg:phrase_extraction}
+\begin{algorithm}
+\caption{Phrase Extraction}
+\label{alg:phrase_extraction}
+\KwIn{已分词的句集$S=\{s_i\}$，规则集合$R={r_i}$ $\lambda$, $K$}
+\KwOut{短语集合$P = \{p_i\}$}
+
+\ForEach {$s \in S$} {
+    应用每条规则$r_i \in R$, 获得短语列表$P_{s}=[<w_i, w_j>]$。
+    \ForEach {$p=<w_i,w_j> in P$} {
+    	更新$n(<w_i, w_j>), n(w_i), n(w_j)$
+    }
+}
+
+令$P_{raw}=\{<w_i, w_j>|n(w_i, w_j)>\lambda \}$\\
+
+\ForEach {$p \in P$} {
+	依照式\ref{eqn:chi}, 计算$\chi^2(p)$
+}
+
+以$\chi^2(p)$为键值，递减序排序$P$得到$P_{sorted}$\\
+
+返回$P_{sorted}$的前$K$个元素
+\end{algorithm}
+最终，我们得到了90000条动词短语，作为活动概念的候选集。
+
 \section{获取语义向量表示}
+\label{sec:nnlm}
+\subsection{背景和目标}
+我们已经得到了一系列动词短语，作为活动的候选集合，但其中大多数并不表示一个日常活动，需要将活动概念加以区分。这是一个分类问题，可以使用现有的分类模型，关键在于特征的选取。
 
-\subsection{目标与相关背景}
-接下来,我们需要对得到的短语,包括unigrams和bigrams进行分类,以识别哪些短语表示一个活动。对于bigrams,它由一个动词和名词组成,一种显而易见的想法是,包含特定动词的短语,比如( 吃, ), (去, ) 更有可能是一个Activity,如果我们进行足够多的标注,就能进行有效的分类.即,每个词对应一个向量,词$w_i$对应的向量中，只有对应词序号的分量为1，即$(0_1, 0_2, ... , 1_i, ... , 0_n)$, 在计算语言学中称为One-hot Representation. 把它作为特征训练分类器.但这样做有很大的问题。直觉上,假如两个词的语义相似,那么他们的类标更有可能相同;而One-hot representation完全没有考虑词之间的语义相关性，我们能进行的标注量有限，反映到结果上就是精度尚可，但召回率非常低。我们需要找到一种有效的方式衡量两个词的语义相似性。如果能把词表示成一个K维语义空间中的一个向量，K远远小于不同词的总数，用向量的余弦相似度或者欧氏距离来衡量相似性，是最理想的，这是词的Distributed Representation，它由Hinton在1986年提出\cite{hinton1986learning}。
+一种方法是，以词(unigram)作为特征。设共有$|V|$个不同的词，则bigram$<w_i, w_j>$的特征向量是一个$|V|$维向量$(0_1, 0_2,\ldots, 1_i, 0_i+1,\ldots, 1_j, 0_j+1, \ldots, 0_{|V|})$。这样做有效的原因是，动词和名词的数量是有限的，不同的短语可能包含相同的Action和Object，其中带有某些动词的短语，吃、喝，有更高的概率表示活动概念。如果我们进行足够的标注，覆盖足够多的情况，就可以对未知的短语进行分类。这种特征表示方法在计算语言学中称为One-hot Representation. 
+但这样做的问题有
+\begin{itemize}
+\item 无法处理单个单词Unigram。One-hot Representation仅当不同短语间存在共同的单词才会有效。
+\item 没有考虑不同词语的语义联系。假如两个词之间语义相似，那么他们的类标有更大的可能相同，而One-hot Representation中，不同单词是独立的。因此需要进行大量的标注，以覆盖尽可能多的样本。
+\end{itemize}
+在实际测试中，以SVM作为分类模型，可以达到82\%的分类精度，但召回率仅有29\%。为了避免大量的标注工作并提高召回率，我们需要寻找其他特征表示方法，以充分利用两个词之间的语义联系。
 
-\subsection{话题模型}
-以LDA\cite{blei2003latent}为代表的话题模型可以作为一种获得单词向量表示的方法。TODO
+对语义相似度的计算，已经有许多方法。例如，基于文本片段中两个词的共现概率\cite{jiang1997semantic}；基于搜索引擎查询结果条目数量\cite{bollegala2007measuring}；将词表示为维基百科中条目的分布并计算余弦相似度\cite{liu2009clustering}。这些方法提供了两个词之间相似度的度量，但使用并不方便。理想的情况是将每个词表示为$K$维空间的向量，K远远小于不同词的总数，词之间的相似度可以计算两个向量的余弦相似度。这Hinton提出的Distributed Representation\cite{hinton1986learning}。本文使用基于神经网络语言模型的工具Word2Vec获得词语的语义向量表示。
 
-\subsection{n-gram 语言模型}
+\subsection{神经网络语言模型(NNLM)}
 要对语义进行建模，容易想到的思路是，假如两个词经常出现的上下文相似，那么它们的语义可能也是相似的，这是自然语言处理中了统计语言模型的基础。一个语言模型是语言基本单位（如句子）的生成模型，用各个单词出现的条件概率来表示，即
 \[
 p(sentence) = \prod\limits_t {p({w_t}|Context_t)}
@@ -37,19 +114,29 @@ Context_t = & w_{t-n+1}^{t-1} \\
 p(sentence) = & \prod\limits_t {p({w_t}|w_{t-n+1}^{t-1})}
 \end{align*}
 
-n-gram语言模型的问题是，由于语料的限制，高阶的语言模型受制于数据的稀疏性，无法建模更远的关系，一般使用tri-gram。随着互联网带来的海量数据以及计算能力的提升，更高阶的语言模型成为可能，Google曾经公开了5-gram的语言模型，但体积非常大，对我们的应用来说不切实际的。
+n-gram语言模型的问题是，由于语料的限制，高阶的语言模型受制于数据的稀疏性，无法建模更远的关系，一般使用tri-gram。随着互联网带来的海量数据以及计算能力的提升，更高阶的语言模型成为可能，Google曾经公开了5-gram的语言模型，但体积非常大，对我们的应用来说不切实际的。其次，n-gram对语义相似度建模的能力有限。它仅考虑词在给定上下文出现的概率，但对上下文的相似性没有考虑。比如，``房间里趴着一只狗''和``卧室里趴着一只猫'',对``猫''和``狗''建模时，n-gram模型没有考虑``房间''和``卧室''的相似性，而它们的相似性是可以根据其他文本得到的。我们需要找到一种可以将上下文相似性一并考虑的方法模型。
 
-其次，n-gram对语义相似度建模的能力有限。它仅考虑词在给定上下文出现的概率，但对上下文的相似性没有考虑。比如，``房间里趴着一只狗''和``卧室里趴着一只猫'',对``猫''和``狗''建模时，n-gram模型没有考虑``房间''和``卧室''的相似性，而它们的相似性是可以根据其他文本得到的。我们需要找到一种可以将上下文相似性一并考虑的方法模型。
+换个角度思考，我们要求的是$p({w_t}|w_{t-n+1}^{t-1})$, 实际可以看做是一个函数$f(w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1}, w_t)$. Hornik等人证明了，带有一个隐含层的多层前馈神经网络，可以近似$R^n$上任意连续函数（universal approximation theorem\cite{hornik1991approximation}）. 因此，我们也能用神经网络来逼近$f()$. 我们把$w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1}$的One-hot Representation作为输入，希望输出$output_i=P(w_t=i|w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1})$, 这样就是n-gram语言模型的神经网络近似。如果我们把输入换成每个词对应的K维向量表示，那么上下文的相似性可以自然体现在向量的相似性中，这个模型就是神经网络语言模型（NNLM）\cite{bengio2006neural} \cite{mikolov2013efficient}。与一般神经网络不同的是，它的输入，即每个词的向量表示，是未知的，需要和模型参数一同优化。如图\ref{fig:nnlm}所示，输入为词序列$w_{t-n+1}^{t-1}$，$C(w_i)$为词$w_i$的向量表示，输出经过softmax归一化为词出现的概率。可用随机梯度优化网络参数。由于输出层为softmax，不会出现概率为0的情况，因此不需n-gram模型中复杂的平滑方法，并且可以取得更好的效果。
 
-\subsection{神经网络语言模型(NNLM)}
-换个角度思考，我们要求的是$p({w_t}|w_{t-n+1}^{t-1})$, 实际可以看做是一个函数$f(w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1}, w_t)$. Hornik等人证明了，带有一个隐含层的多层前馈神经网络，可以近似$R^n$上任意连续函数（universal approximation theorem\cite{hornik1991approximation}）. 因此，我们也能用神经网络来逼近$f()$. 我们把$w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1}$的One-hot Representation作为输入，希望输出$output_i=P(w_t=i|w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1})$, 这样就是n-gram语言模型的神经网络近似。如果我们把输入换成每个词对应的K维向量表示，那么上下文的相似性可以自然体现在向量的相似性中，这个模型就是神经网络语言模型（NNLM）\cite{bengio2006neural} \cite{mikolov2013efficient}。与一般神经网络不同的是，它的输入，即每个词的向量表示，是未知的，需要和模型参数一同优化。
+\begin{align*}
+y = & b+U\tanh(d+Hx)\\
+output_t = & P(w_t|w_{t-n+1}^{t-1}) \\
+		= & \frac{e^{y_i}}{\sum\nolimits_i {{e^{{y_i}}}} }
+\end{align*}
 
-\subsection{使用前馈神经网络训练NNLM}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{nnlm.png}
+\caption{神经网络语言模型}
+\label{fig:nnlm}
+\end{figure}
+
+Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进行训练的高效工具。
 
 \subsection{案例研究}
 我们在1300万条新浪微博上训练了NNLM,并对得到的向量做一些案例研究,以检验模型的有效性。
 
-通过神经网络语言模型训练得到的词向量,的确反映了语义层面上的特征,可以用余弦相似度衡量两个词语义上的相关性。我们给出一个活动，找出和其最相似的10个词组，衡量其相关性:
+首先，我们给出一个活动，用余弦相似度衡量两个词语义上的相关性，找出和其最相似的10个词组，如表\ref{table:similarity_instances}。可见，根据NNLM得到的向量表示，很好地反映了语义的相似性。
 
 \begin{table}[h]
 \centering
@@ -173,121 +260,144 @@ n-gram语言模型的问题是，由于语料的限制，高阶的语言模型�
 	\end{tabular}
 \end{subtable}
 
-\caption{相似度实例}
+\caption{语义相似度实例}
+\label{table:similarity_instance}
 \end{table}
-
 
 并且词向量具有可加性.例如, 可以用向量加法来表达语义关系的组合:
 \begin{align*}
-	v(\text{济南}) - v(\text{山东}) + v(\text{浙江}) \approx & v(\text{杭州}) \\
-	v(\text{北京}) - v(\text{中国}) + v(\text{法国}) \approx & v(\text{巴黎}) \\
+	v(\text{济南}) - v(\text{山东}) + v(\text{浙江}) \rightarrow & v(\text{杭州}) \\
+	v(\text{北京}) - v(\text{中国}) + v(\text{法国}) \rightarrow & v(\text{巴黎}) \\
 \end{align*}
-这里的约等于号表示,在所有的词中,约等号右边的词与左边运算的结果余弦相似度最大.这两个式子的含义是,杭州对浙江的关系,与济南对山东的关系相似(都是省会); 东京对日本的关系,与北京对中国的关系相似(都是首都).
+这里的$\rightarrow$表示,在所有的词中,约等号右边的词向量与左边运算的结果余弦相似度最大.这两个式子的含义是,杭州对浙江的关系,与济南对山东的关系相似(都是省会); 东京对日本的关系,与北京对中国的关系相似(都是首都).
 
-再比如
+再如
 \begin{align*}
-	v(\text{喝}) - v(\text{渴}) + v(\text{饿}) \approx & v(\text{吃}) \\
-	v(\text{校长}) - v(\text{学校}) + v(\text{公司}) \approx & v(\text{总裁}) \\
-	v(\text{胡锦涛}) - v(\text{中国}) + v(\text{日本}) \approx & v(\text{首相}) \\
+	v(\text{喝}) - v(\text{渴}) + v(\text{饿}) \rightarrow & v(\text{吃}) \\
+	v(\text{校长}) - v(\text{学校}) + v(\text{公司}) \rightarrow & v(\text{总裁}) \\
+	v(\text{胡锦涛}) - v(\text{中国}) + v(\text{日本}) \rightarrow & v(\text{首相}) \\
 \end{align*}
-
-这些式子都有很明确自然的语义关系.
-当然,这种语义组合的关系并不是总能成立.
+这些式子都有很明确自然的语义关系。虽然这种语义组合的关系并不是总能成立，但反映出，词的向量表示在某种层面上反映了词的语义特征。
 
 \section{最优化标注集}
+\subsection{目标}
+在\ref{sec:nnlm}中，我们得到了每个词对应的向量表示。对于unigram, 词向量本身就是短语的向量；对于bigram, 由于向量可加，将动词和名词的向量相加后归一化，如此，每个动词短语可以看做K维语义向量空间中的一个向量，更确切来说，每个向量的模长均为1，它们分布在一个K维超球面上。
 
-下一步，我们对抽取出的候选集进行分类。每个短语可以看做K维语义向量空间中的一个向量，更确切来说，由于每个向量的模长均为1，它们分布在一个K维超球面上.并且由于语义的复杂性，正例（表示活动的短语）和负例（无关短语）是线性不可分的。对于模型的选择，我们主要考虑使用现有的可处理非线性情形的机器学习模型，如K近邻，支持向量机SVM，决策树等等，逻辑回归Logistic Regression等线性模型也进行测试。
-
-分类器训练通常需要对训练样本进行标注，人工识别每个短语的类别，以确定模型参数，训练样本一般是从待分类数据中随机抽样得到。由于语义空间很大，待分类的数据也比较多，而我使用随机抽样得到的训练样本直接训练一个SVM分类器，精度可以达到76\%, 但是召回率非常低，只有43\%。更多的标注可以改善召回率低的情况，但是由于数据量很大，大量标注是很耗时的。由于数据分布的特殊性，我希望设计一种有原则的（Principled）训练样本抽取方法，在标注数据量一定的情况下，能够尽可能提高训练的效果。假设标注集为$L$，我们需要恰当定义其效用函数$Q(L)$以判断它的有效性，并且在一定约束条件下，找出最优的$L$,也就是
-
+在对短语进行分类前，需要手工构建一个标注集，类标``1''表示是活动，``0''表示非活动，作为训练数据训练分类模型，确定模型参数。传统上，训练样本是从待分类数据中随机抽样得到。由于语义空间很大，待分类的数据也比较多，使用随机抽样得到的训练样本训练SVM分类器，精度为69\%, 召回率相对One-hot Representation有所提升，但依然只有43\%。更多的标注可以改善精度和召回率的情况，但大量标注需要耗费很常时间。本文希望根据数据分布的特性，希望设计一种有原则的训练样本选择方法，在标注数据量一定的情况下，能够尽可能提高训练的效果。假设标注集为$L$，我们需要恰当定义其效用函数$Q(L)$以判断它的有效性，并且限制$L$的大小为$M$，找出最优的$L$,也就是
 \[
     L^* = \arg\max_{L,|L| = M} Q(L)
 \]
 
-直觉上考虑，标注一个训练样本后，和此训练样本相似的样本，我们有较高的置信度将其正确分类。以K近邻分类器为例，对于每个未知样本，寻找训练集中和其距离最近的K个样本，由这K个近邻投票确定此样本的类标。但在我们的问题中，样本间的相似性$sim(v_i, v_j)$使用向量的余弦相似度来表示$<v_i, v_j$，据此可以定义一个样本$v$和集合$S$的相似性。
+\subsection{模型概述}
+直觉上，标注一个训练样本后，和此训练样本相似的样本，我们有较高的置信度将其正确分类。例如，在K近邻分类器中，对于每个未知样本，寻找训练集中和其距离最近的K个样本，由这K个近邻投票确定此样本的类标; 在SVM中，若$x_i \sim x_j$，则$wx_i+b \sim wx_j+b$。
+
+在我们的问题中，样本间的相似性$sim(x_i, x_j)$使用向量的余弦相似度来表示$<x_i, x_j>=\frac{x_i\dot x_j}{|x_i||x_j|}$，据此可以定义一个样本$x$和集合$S$的相似性。
 
 \begin{definition}
 \[
-    sim(v, S) = sim(v, u),|\{ {v_j}|sim({v_j},v) \ge sim(u,v)\} | = K
+    sim(x, S) = \mathop {\max }\limits_{u \in S} sim(x,u)
 \]
 \end{definition}
+即，样本$x$与集合$S$的相似度为$S$中与$x$最相似的元素与$x$的相似度。
 
-即，集合中和$v$第K个和其最相似的元素的相似度。设全部样例的集合为$U$, 标注集为$L$, 我们的效用函数可以定义成
+设全部数据样本的集合为$U$, 标注集为$L$, 我们希望对于每个未知样本，在$L$中，都能找到一个与其相似度高的的元素，即标注集能够更好地代表所有数据。根据这个想法，我们的效用函数可以定义成
 \[
-    Q(L) = \mathop {\min }\limits_{{v_i}} si{m_K}({v_i},L)
+    Q(L) = \mathop {\min }\limits_{{v_i}} sim({v_i},L)
 \]
+意义是，所有样本与$L$的最小相似度。$Q(L)$越大，说明$L$越好地代表了数据集。我们的目标是，限制$L$的大小为$M$，找到最优的标注集$L^*$。问题可以形式定义为：
 
-目标是找到最优的标注集$L^*$。我们的问题可以形式定义为：
-\begin{problem}\label{label:opt_problem}
-给定集合$U$， 对任意元素$v_i, v_j \in U$， 有相似度度量$sim(v_i,v_j)$. 元素与集合相似度$sim_K(v, S)$如前定义。我们要求
+\begin{problem}\label{prob:opt_problem}
+给定集合$U$， 对任意元素$x_i, x_j \in U$， 有相似度度量$sim(x_i,x_j)$. 元素与集合相似度$sim(x, S)$和效用函数$Q$如前定义。要求最优子集
 \[
-        {L^*} = \mathop {\arg \max }\limits_L Q(L),|L| = M, L \subseteq U
+        {L^*} = \mathop {\arg \max }\limits_{L \subseteq U, \ |L| = M} Q(L)
 \]
 \end{problem}
 
-\ref{label:opt_problem}是一个组合优化问题，类似于k-center问题，但是我们用的相似度度量不满足三角不等式，现有算法无法直接应用。通常来说，这类问题是NP-Hard的，下面我们将集合覆盖问题可以归约到此问题来证明其NP-Hardness。集合覆盖问题的判定版本是Richard Karp在1971年提出的21个NP完全问题之一。问题定义为:
+\subsection{NP-Hardness}
+\label{sec:nph}
+问题\ref{prob:opt_problem}是一个组合优化问题，这类问题通常是NP-Hard的，下面我们将集合覆盖问题可以归约到此问题来证明其NP-Hardness。
+
+集合覆盖问题的判定版本是Richard Karp在1971年提出的21个NP完全问题之一。问题定义为:
 
 \begin{problem}[集合覆盖]
+\label{prob:set_cover}
 给定全集$U$,一族子集$S=\{S_i\}, \cup {S_i} = U$,以及整数$M$,判定是否存在覆盖$[C \subseteq S,|C|=M$,使得$\cup \{ {S_i}|{S_i} \in C\}  = U$
 \end{problem}
 
-显然，如果任意K，我们能在多项式时间解决，K=1也是可以的。当K=1时，此问题的判定版本是，给定阈值$\theta$,问是否存在大小为$M$的集合$L$，使得
+问题\ref{prob:opt_problem}的判定问题是
+\begin{problem}[问题\ref{prob:opt_problem}的判定问题]
+\label{prob:dec_problem}
+给定阈值$\theta$，判定是否存在大小为$M$的集合$L$，使得
 \[
-    \theta  \le \mathop {\min }\limits_{{v_i} \in U} \mathop {\max }\limits_{{v_j} \in L} \{ sim({v_i},{v_j})\} 
+    \theta  \le \mathop {\min }\limits_{{x_i} \in U} \mathop {\max }\limits_{{x_j} \in L} \{ sim({x_i},{x_j})\} 
 \]
-如果能证明K=1时判定问题的NP完全性，那么原问题的NP-Hardness就得证。
+\end{problem}
+
+如果能证明此判定问题的NP完全性，那么原问题的NP-Hardness就得证。显然，如果能解决集合覆盖问题，问题\ref{prob:dec_problem}也可得到解决。但为了证明\ref{prob:dec_problem}的NP完全性，需要进行相反方向的归约，即证明，如果能在多项式时间解决问题\ref{prob:dec_problem}, 则集合覆盖问题也可在多项式时间解决。证明如下。
 
 \begin{proof}
-对于集合覆盖问题，如果存在一个元素$v\in U$不在任何一个$S_i$中，那么覆盖显然是不存在的，因此下面仅考虑每个元素都至少被一个元素覆盖的情况。
+对于集合覆盖问题\ref{prob:set_cover}，如果存在一个元素$x \in U$不在任何一个$S_i \in S$中，那么覆盖显然是不存在的.下面仅考虑每个元素都至少被一个$S_i \in S$覆盖的情况。
 
-设$|U| = N, |S| = P$, 我们构造一个包含$N+P$个结点的图$G=(V,E)$。其中，集合$U$中的每个元素$v_i, 1 \le i \le N $ 都是$G$中的一个结点，称为元素结点(element nodes)，此外，对每个$S_i \in S$, 创建新节点$v_{i+N}, 1 \le i \le P$, 称作集合结点(set nodes)。$E={(v_i, v_{j+N}) | v_i \in S_j, 1\le i \le N, 1\le j \le P} \cup {(v_i+N, v_j+N) | 1 \le i,j \le P}$. 也就是说，每个集合都和它包含的元素连边，集合之间两两连边。所有边赋权为$\theta$，不存在边的赋权负无穷。如下图所示。
+设$|U| = N, |S| = P$, 我们构造一个包含$N+P$个结点的图$G=(V,E)$。其中，结点集$V$为：
+\begin{itemize}
+\item 集合$U$中的每个元素$x_i, 1 \le i \le N $ 都对应$G$中的一个结点$v_i$，称为元素结点(element nodes)。
+\item 对每个$S_i \in S$, 对应节点$v_{i+N}, 1 \le i \le P$, 称作集合结点(set nodes)。
+\end{itemize}
+边集$E=\{(v_i, v_{j+N}) | v_i \in S_j, 1\le i \le N, 1\le j \le P\} \cup {(v_i+N, v_j+N) | 1 \le i,j \le P}$. 即，每个集合都和它包含的元素连边，集合之间两两连边。所有边赋权为$\theta$，不存在边的赋权负无穷。如图\ref{fig:setcover}所示。
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.6\textwidth]{./setcover.png}
-\caption{集合覆盖-距离}
+\includegraphics[width=0.7\textwidth]{./setcover.png}
+\caption{问题归约}
 \label{fig:setcover}
 \end{figure}
 
+假如我们能在多项式时间内求解问题\ref{prob:dec_problem}， 则分两种情况。
 
-假如我们能在多项式时间内求解原问题。如果存在$L^*$,则取$L^*$对应集合的结点（如果对应元素，替换成任意一个包含它的集合），这样我们就找到了$U$的一个覆盖。如果$L^*$不存在，则集合覆盖也不存在。因此，我们要求解的判定问题是一个NP完全问题。故优化问题是一个NP-Hard问题。不存在已知的多项式时间解。
+1， 如果存在满足条件$L$，可在多项式时间构造集合覆盖问题的解$C$：对任意$v_i \in L$， 若$v_i$为集合结点(即$N+1 \le i \le N+P$)，则$S_i \in C$;若$v_i$为元素结点($N+1 \le i \le N+P$), 取任意包含$v_i$的任意集合$x_i \in S_j$，使得$S_j \in C$。这样，$C$构成了$U$的一个覆盖。
+
+2， 如果$L$不存在，则集合覆盖也不存在。否则，若存在$U$的一个覆盖$C$, 选择$C$中集合对应的结点构成$L$，就可以得到问题\ref{prob:dec_problem}的解，矛盾。
+
+这样，集合覆盖问题就在多项式时间内归约到了问题\ref{prob:dec_problem}。又由于它也可以归约到集合覆盖问题，因此，问题\ref{prob:dec_problem}是一个NP完全问题。其优化版本，即我们要求解的问题\ref{prob:opt_problem}，是一个NP-Hard问题。不存在已知的多项式时间解。
 \end{proof}
 
-
 \subsection{子模性及近似求解}
-前文已经证明最优化$Q(L)$是一个NP-Hard问题，但是下面我们将证明其单调性和子模性，并据此得到一个贪心算法(greedy algorithm), 在多项式时间内得到近似解$Q(L')$, 并且保证
+
+节\ref{sec:nph}已经证明最优化$Q(L)$是一个NP-Hard问题，但是下面我们将证明其单调性和子模性，并据此得到一个贪心算法(greedy algorithm), 在多项式时间内得到近似解$Q(L')$, 并且保证
 \[
-	Q(L^*) \ge (1-\frac{1}{e}) Q(L')
+	Q(L') \ge (1-\frac{1}{e}) Q(L^*)
 \]
 
+首先给出子模函数(submodular function)的定义。
 \begin{definition}[子模函数]
-从幂集$2^\Omega \to R$的一个函数$f$称为子模函数(submodular function),如果对任意$X,Y \subseteq \Omega, X \subseteq Y$,$\forall x \notin Y$, 有$f(X \cup \{x\} ) - f(X) \geq f(Y \cup \{x\} ) - f(Y)$.
+从幂集$2^\Omega \to R$的一个函数$f$称为子模函数,如果对任意$X,Y \subseteq \Omega, X \subseteq Y$,$\forall x \notin Y$, 有$f(X \cup \{x\} ) - f(X) \geq f(Y \cup \{x\} ) - f(Y)$.
 \end{definition}
 
-下面我们分别证明$Q(L)$的单调性和子模性。
+下面我们分别证明$Q(L)$的单调性和子模性。单调性是显然的。
 \begin{proof}[单调性]
-令集合$Y=X\cup{x}$。对任意元素$y \in U - X$, 设$sim_K(y, X) = sim_K(y, t), t \in X]$,
-那么,
-\[
-	|\{ {v_j}|sim({v_j},v) \ge sim(y, t), v_j \in X \} | = K	
-\]
+令集合$Y=X\cup{x}$。对任意元素$y \in U$, 设$sim(y, X) = sim(y, t), t \in X$, 即对任意$x \in X$, $sim(y,x) \le sim(y,t)$。
+
 由于$X \subset Y$，故有
-\[
-	|\{ {v_j}|sim({v_j},v) \ge sim(y, t), v_j \in Y \} | \ge K	
-\]
-从而， $sim_K(y, Y) \ge sim_K(y, X)$。由$y$的任意性，得到
-\[
-	Q(Y) \ge Q(X)
-\]
+\begin{align*}
+	sim(y,Y) = & \mathop {\max }\limits_{x \in Y} sim(y,x) \\
+			\ge &  \mathop {\max }\limits_{x \in X} sim(y,x) \\
+			\ge &  sim(y,X) \\
+\end{align*}
+从而， $sim(y, Y) \ge sim(y, X)$。由$y$的任意性，得到
+
+\begin{align*}
+	Q(Y) = & \mathop {\min }\limits_{y \in U} sim(y,Y) \\ 
+		\ge & Q(X)
+\end{align*}
+
 单调性证完。
 \end{proof}
 
 \begin{proof}[子模性]
-设集合$X \subset Y$, 对任意$x \in U - Y$, 设$X' = X\cup{x}, Y' = Y\cup{y}$。
-对任意$y \in U$, 由单调性有
-\[
+设集合$X \subset Y$, 对任意$x \in U - Y$, 设$X' = X\cup{x}, Y' = Y\cup{x}$。对任意$y \in U$, 由单调性有
+\begin{eqnarray*}
 	sim(y, Y') \ge sim(y, X') \ge sim(y, X) \\
 	sim(y, Y') \ge sim(y, Y) \ge sim(y, X) 
-\]
+\end{eqnarray*}
 
 对于新加入的元素$x$, 有
 \begin{align*}
@@ -305,6 +415,7 @@ n-gram语言模型的问题是，由于语料的限制，高阶的语言模型�
 由$y$的任意性，子模性得证。
 \end{proof}
 
+对于单调非减的子模函数，有以下定理
 \begin{theorem}
 对于一个单调增的子模函数$Q$，从空集$L_0$开始，使用贪心策略进行迭代，即第$k$次迭代选取元素$v_k$，使得
 \[
@@ -315,7 +426,7 @@ n-gram语言模型的问题是，由于语料的限制，高阶的语言模型�
 \]
 那么$K$次迭代之后， 对任意$L, |L| \le K$，有
 \[
-	Q(L_k) \ge (1-\frac{1}{e}) Q(L'),
+	Q(L_k) \ge (1-\frac{1}{e}) Q(L),
 \]
 \end{theorem}
 
@@ -368,4 +479,5 @@ n-gram语言模型的问题是，由于语料的限制，高阶的语言模型�
 \section{错误分析和性能优化}
 我对分类错误的样本
 
+\section{本章小结}
 
