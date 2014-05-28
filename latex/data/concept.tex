@@ -1,5 +1,6 @@
 
 \chapter{活动概念抽取}
+\label{chp:concept}
 \section{数据来源}
 本文的工作基于新浪微博的数据。我们随机选取了100个用户作为种子，并获取他们的关注者和关注他们的人，以此为核心进行广度优先搜索。对每个用户，抓取其最近的1000条微博。表\ref{table:weibo_stat}是微博数据的一些信息：
 \begin{table}[!h]
@@ -279,7 +280,8 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
 \end{align*}
 这些式子都有很明确自然的语义关系。虽然这种语义组合的关系并不是总能成立，但反映出，词的向量表示在某种层面上反映了词的语义特征。
 
-\section{最优化标注集}
+\section{优化训练集选取}
+\label{sec:opt_trainset}
 \subsection{目标}
 在\ref{sec:nnlm}中，我们得到了每个词对应的向量表示。对于unigram, 词向量本身就是短语的向量；对于bigram, 由于向量可加，将动词和名词的向量相加后归一化，如此，每个动词短语可以看做K维语义向量空间中的一个向量，更确切来说，每个向量的模长均为1，它们分布在一个K维超球面上。
 
@@ -430,54 +432,80 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
 \]
 \end{theorem}
 
-这直接给我们了一个保证下界的贪心算法。
+基于此定理，可以得到了一个保证下界的贪心算法\ref{alg:greedy}。
 \begin{algorithm}
-  \caption{maximize Q(L)}
-  \KwIn{Unisersal set $U$, target size $K$ and similarity measure $sim()$}
+  \caption{问题\ref{prob:opt_problem}贪心算法}
+  \KwIn{样本集合$U$, 目标大小$M$}
   \KwOut{${L^*} = \mathop {\arg \max }\limits_{L,|L| = K, L \subseteq U} Q(L)$ }
   $L_0 = \emptyset$\;
-  \For{$k=1;k \le K;k += 1$}
+  \For{$k=1;k \le M;k += 1$}
   {
+  	\ForEach{$x_i \in U-L_{k-1}$}{
+  		$q(x_i) = \mathop {\min }\limits_{t \in U} \max \{ sim(t,{L_{k - 1}}),sim(t,x_i)\} )$
+  	}
 
+  	$x_{selected} = \mathop {\arg \max }\limits_{x \in U - {L_{k - 1}}} q(x)$
+
+  	$L_k = L_{k-1}\cup\{x_{selected}\}$ 
   }
-  return $con(r_i)$\;
+  return $L_M$;
+  \label{alg:greedy}
 \end{algorithm}
 
-\section{模型选择}
-我们的标注集选择和KNN有密切的联系，KNN在我们的数据中可能表现更好，但是我们也会尝试其他的分类模型，如支持向量机，随机森林等。
+\section{实验结果与优化}
+为了检验我们标注集选取和分类的效果，我们从数据集中随机抽取了5000个短语进行标注，作为Ground Truth验证我们的方法。
 
-\section{实验结果与错误分析}
-为了检验我们标注和分类的效果，我们从短语候选集中随机抽取了5000个短语作为Ground Truth进行测试。
-
-图\ref{fig:testing_vs_random}是我们分别使用随机抽样（Random）和最大化$Q(L)$(MaxSim)的方法选取500、1000、2000个标注样本时，5-NN分类器在测试集上的表现。对于随机抽样，我们进行5次试验取平均值，并在图中标注了最大和最小值。
+首先，我们使用随机抽样(Random)和最大化$Q(L)$(MaxSim)的两种训练集选取方法分别抽取500、1000、2000个训练样本，训练一个SVM分类器，在剩余测试数据中的表现。
+对于随机抽样，进行了5次试验，记录每次试验的结果，并标记最大值、最小值、平均值。
 
 \begin{figure}[h!]
   \centering
   \begin{subfigure}{0.4\textwidth}
     \includegraphics[width=\textwidth]{label_precision.png}
     \caption{Precision}
-  \end{subfigure}
-  \hspace{2em}%
+  \end{subfigure} 
+  
   \begin{subfigure}{0.4\textwidth}
     \includegraphics[width=\textwidth]{label_recall.png}
     \caption{Recall}
   \end{subfigure}
-  \hspace{2em}
+
   \begin{subfigure}{0.4\textwidth}
   	\includegraphics[width=\textwidth]{label_f1.png}
   	\caption{F1-score}
   \end{subfigure}
-  \caption{实验结果}
+  \caption{概念抽取初步结果}
   \label{fig:testing_vs_random}
 \end{figure}
-从图\ref{fig:testing_vs_random}中可以看出，我们提出了训练集选取方案，在Recall和Precision方面，都稳定的高于随机随机抽样，尤其是在标注量较小时，MaxSim选取的标注集在Recall方面的优势更加明显。
 
-同时我们测试了其他分类模型在两种标注集选取方法下的性能。
+图\ref{fig:testing_vs_random}中发现，我们在节\ref{sec:opt_trainset}中提出的训练集选取算法，在Recall和Precision方面，都稳定的高于随机随机抽样，尤其是在标注量较小时，MaxSim选取的标注集在Recall方面的优势更加明显(61\%,52\%）。
 
-可以看出除了KNN以外，SVM，随机森林等分类器在MaxSim上的性能都超过了随机方法。同时，SVM和KNN的总体表现（F1-score）上相差不多，Precision较高而Recall较低，在实际系统中，我们希望提供更加精确的结果，因此，我们最终采用SVM作为分类模型。
+对结果进行错误分析，我们发现，有些相似度高的词，类标并不相同，如``天亮''和``起床''，``开场''和``看演出''。为了解决这一问题，我们引入了其他特征帮助分类。
+\begin{itemize}
+\item 签到信息。
+\item 时间词，如``今天''，``上午'',``晚上''等。
+\item 同一句子中是否出现人称代词。
+\item 词的时间分布。
+\end{itemize}
+加入这些特征后，我们的抽取方法得到了更好的结果，如表\ref{table:concept}。最终，我们从微博中抽取出13470个活动概念。
 
-\section{错误分析和性能优化}
-我对分类错误的样本
+\begin{table}
+\centering
+\begin{tabular}{|c|c|}
+\hline
+Accuracy & 85.1\% \\
+\hline
+Precison & 85.6\% \\
+\hline
+Recall & 81.3\% \\
+\hline
+F1 & 0.834 \\
+\hline
+\end{tabular}
+\caption{概念抽取实验结果}
+\label{table:concept}
+\end{table}
 
 \section{本章小结}
+本章着力解决活动概念抽取问题。从候选集抽取、语义向量获取、测试集选取、模型选择到最后的分类，得到了较好的分类精度。方法的核心在于通过神经网络语言模型训练词的向量表示，把语义相似度的计算简化为计算余弦相似度。在此基础上提出的基于最优化效用函数的训练集选取方法，使得以较小的标注成本获取更好的分类效果。时间、地理信息特征的引入，进一步提高了分类精度。
 
