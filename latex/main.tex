@@ -21,6 +21,7 @@
 \usepackage[ruled,vlined]{algorithm2e}
 \usepackage{graphicx}
 \usepackage{multirow}
+\usepackage{bibunits}
 
 \renewcommand{\algorithmcfname}{算法}
 % 你可以在这里修改配置文件中的定义，导言区可以使用中文。
@@ -45,15 +46,14 @@
 \tableofcontents
 
 % 符号对照表
-\input{data/denotation}
+%\input{data/denotation}
 
 
 %%% 正文部分
 \mainmatter
+\begin{bibunit}
 \include{data/intro}
-
 \include{data/related}
-
 \include{data/concept}
 
 \include{data/instance}
@@ -80,8 +80,10 @@
 
 
 % 参考文献
-\bibliographystyle{thubib}
-\bibliography{ref/refs}
+%\bibliographystyle{thubib}
+%\bibliography{ref/refs}
+\putbib[ref/refs]
+\end{bibunit}
 
 % 致谢
 \include{data/ack}
