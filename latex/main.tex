@@ -21,11 +21,21 @@
 \usepackage[ruled,vlined]{algorithm2e}
 \usepackage{graphicx}
 \usepackage{multirow}
+\usepackage[numbers]{natbib}
 \usepackage{bibunits}
+
+\makeatletter
+\newcommand*{\newbibstartnumber}[1]{%
+  \apptocmd{\thebibliography}{%
+    \global\c@NAT@ctr #1\relax
+    \addtocounter{NAT@ctr}{-1}%
+  }{}{}%
+}
+\makeatother
 
 \renewcommand{\algorithmcfname}{算法}
 % 你可以在这里修改配置文件中的定义，导言区可以使用中文。
-% \def\myname{薛瑞尼}
+\def\myname{王凝枰}
 \theorembodyfont{\songti}
 \theoremheaderfont{\heiti}
 
@@ -51,7 +61,7 @@
 
 %%% 正文部分
 \mainmatter
-\begin{bibunit}
+\begin{bibunit}[thubib]
 \include{data/intro}
 \include{data/related}
 \include{data/concept}
@@ -89,8 +99,13 @@
 \include{data/ack}
 
 % 附录
+
+\newbibstartnumber{1}
 \begin{appendix}
+\begin{bibunit}[thubib]
 \input{data/appendix01}
+\putbib[ref/opening]
+\end{bibunit}
 \end{appendix}
 
 % 个人简历

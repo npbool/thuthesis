@@ -1,45 +1,90 @@
 
 \chapter{活动概念抽取}
+
+\section{概述}
+本章主要解决如何从从社交数据中抽取抽象的活动概念。概念抽取是一个典型的信息抽取问题，这类问题可以通过CRF解决。但CRF一方面需要比较繁重的标注工作，另一方面，它常常有精度较高而召回率较低，因此本文采取了不同的策略，将其转化为一个二分类问题。
+
+本文首先从全部微博中抽取出较频繁的短语，包括一元和二元语法，并提取短语特征；其次，根据数据分布选取并标注训练集，训练分类模型，对其余数据进行预测。其中，在特征提取中，为了充分利用词语之间的语义关系，本文使用神经网络语言模型工具Word2Vec获取了语义向量表示；在训练集选取中，提出并解决了一个组合优化问题，使得训练集能够更好地代表数据集合，在同等标注代价下获得更好的分类效果。概念抽取的框架如图\ref{fig:concept_frame}
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.8\textwidth]{concept_frame.png}
+\caption{概念抽取框架}
+\label{fig:concept_frame}
+\end{figure}
 \label{chp:concept}
+
 \section{数据来源}
-本文的工作基于新浪微博的数据。我们随机选取了100个用户作为种子，并获取他们的关注者和关注他们的人，以此为核心进行广度优先搜索。对每个用户，抓取其最近的1000条微博。表\ref{table:weibo_stat}是微博数据的一些信息：
+本文的工作基于新浪微博的数据。我们随机选取了100个用户作为种子，并获取他们的关注者和关注他们的人，以此为核心进行广度优先搜索。对每个用户，抓取其最近的1000条微博,包括用户发布和转发的微博。对于一条微博，可抓取到发表时间、评论数、地理信息等元数据。本文还抓取了用户的个人档案，包含姓名，性别等。表\ref{table:weibo_stat}是微博数据的一些信息：
 \begin{table}[!h]
 \centering
-\begin{tabular}{|c|p{4cm}|}
+\begin{tabular}{|c|p{8cm}|}
 \hline
 用户数 & 1,787, 443 \\
 \hline
-微博数 & ~10亿 \\
+微博数 & 约10亿 \\
 \hline 
 关注关系 & 40亿 \\
 \hline 
-用户信息 & 名字、性别、关注者，被关注者， 创建时间等 \\
+用户信息 & 名字、性别、关注者，被关注者，创建时间 \\
 \hline
-微博信息 & 创建时间、评论数、转发数、原始微博、地理信息等 \\
+微博信息 & 发表时间、评论数、转发数、点赞数、原始微博、地理信息 \\
 \hline
 \end{tabular}
 \caption{微博数据概况}
 \label{table:weibo_stat}
 \end{table}
 
-\section{候选集抽取}
-\subsection{分词与词性标注}
+\section{分词与词性标注}
 
-由于中文没有天然的词边界，分词在处理中文语料是是基础的一步，也是重要的研究领域。常用的中文分词工具，如哈工大的LTP，中科院的ICTCLAS，Stanford Parser，实际应用中都难以做到非常高的准确度，尤其是在微博这种格式自由的文本中。综合比较各个工具的速度、精度后，我选择了ICTCLAS作为分词工具，同时对分出的词进行词性标注，并将常见的错误分词加入用户词典中提高分词精度。
-
-\subsection{短语抽取}
-依照我们对活动概念的定义\ref{def:concept}，活动是单独的动词或一动宾结构的短语。为了挖掘出微博中表达的活动，我们需要将频繁出现的动词及短语抽取出来，以待进一步处理。
-
-最简单的方法是，遍历语料，统计单独的动词，相邻的动词、名词的bigram的频度，按照词频保留TopK个。但这中简单的方法有一些问题
+由于中文没有天然的词边界，因此在中文文本处理中，通常要进行先进行分词和词性标注。当前常用的中文分词工具如中国科学院开发的ICTCLAS \footnote{http://ictclas.nlpir.org/}，Stanford Word Segmenter \footnote{http://nlp.stanford.edu/software/segmenter.shtml}和Pos Tagger \footnote{http://nlp.stanford.edu/software/tagger.shtml}， 微软研究院的S-MSRSeg \footnote{http://research.microsoft.com/en-us/downloads/7a2bb7ee-35e6-40d7-a3f1-0b743a56b424/default.aspx}等。在选择分词工具时，着重关注以下方面：
 \begin{itemize}
-\item 受停用词影响大。同英语语言一样，汉语中也存在一些停用词，如``是'',``在'', 在进行词性标注时被标注为动词，但并不表示一个实际动作。另一些虽然不是传统意义上的停用词，一般不做为一个动作，而是副词，如``完''”，``过'' 但经常出现在动词短语中，如``做完作业''，``吃过午饭''等。这些词常常词频很高，它们组成的短语数量多且排序高。
-\item 表示活动的短语在文本中可能不是连续的。除了上面举过的例子之外，动词和名词之间可能包含一些更复杂的修饰成分，如``买了一件衣服'', ``参加学校举办的比赛''。对于这些情况，简单抽取相邻的动词、名词组成的bigram就会产生遗漏。
-\item 倾向于选取包含高频词的短语，易受噪声影响。高频词会更多地和其他词随机共同出现，但并不构成一个短语。如果基于频度选取短语，会倾向于包含高频词的词组，无法将这种情况区分出来。
+\item 分词和词性标注精度。
+\item 处理速度。 本文要处理千万量级的微博数据，因此分词速度非常重要。
+\item 扩展性和新词处理能力。 微博数据中常常会有新词和惯用语，一般的分词工具难以处理，需要人工添加用户词典，并具有新词发现能力。
+\end{itemize}
+综合比较之后，我选择了ICTCLAS作为分词工具。
+
+ICTCLAS接收原始文本作为输入，分词结果中单词以空格隔开。同时，ICTCLAS提供了细致的词性标注功能。对于每个单词，除主词性外，还有二级标注，如动词(v)可进一步分为不及物动词(vi)、名词性动词(vn)等。ICTCLAS进行分词的结果如表\ref{table:ictclas_result}：
+
+\begin{table}[!h]
+\kaishu
+\centering
+\begin{tabular}{|c|c|}
+\hline
+序号 & 分词结果 \\
+\hline
+1 & 等/v 人/n 永远/d 是/vshi 那么/rz 的/ude1 无聊/a   我/rr 在/p :/wp http://t.cn/zj2nzBu/url \\
+\hline
+2 & 晚宴/n 要/v 开始/v 咯/y ，/wd 金色/n 礼服/n 穿/v 起来/vf \\
+\hline
+3 & 酒足饭饱/vl 好/a 开心/a   http://t.cn/Sa37Bk/url \\
+\hline
+\end{tabular}
+\caption{ICTCLAS分词结果示例}
+\label{table:ictclas_result}
+\end{table}
+
+此外，对于一些常用的新词和惯用语，本文其加入用户词典中提高分词精度。
+
+\section{概念候选集抽取}
+\label{sec:phrase_extraction}
+
+我们首先给出n元语法的定义:
+\begin{definition}[n元语法(n-gram)]
+设所有不同的词组成集合$V$，n元语法表示文本中相邻的n的词的序列，即$<w_1, w_2, \ldots, w_n>, w_i \in V, i=1,2,\ldots,n$。特别地，一元语法(unigram)为单个单词$w$, 二元语法为相邻的两个单词$<w_1, w_2>$。
+\end{definition}
+
+根据我们对活动概念的定义\ref{def:concept}，活动概念是单独的动词或一动宾结构的短语，因此，活动概念为unigram $w$, $w$为动词，或bigram$<w_1, w_2>$, $w_1$为动词，$w_2$为名词。为此，可以遍历分词文本中所有的unigram和bigram，同时为了去除噪声，只保留出现频度大于一个阈值的短语。但这种方法有一些问题
+\begin{itemize}
+\item 受停用词影响大。同英语语言一样，汉语中也存在一些停用词，如``是'',``在'', 一些停用词在进行词性标注时被标注为动词。另一些虽然不是传统意义上的停用词，一般不做为一个动作，而是副词，如``完''”，``过'' 但经常出现在动词短语中，如``做完作业''，``吃过午饭''等。这些词常常词频很高，它们组成的短语频度很高。
+\item 表示活动的短语在文本中可能不是连续的。除了上面举过的例子之外，动词和名词之间可能包含一些更复杂的修饰成分，如``买了一件衣服'', ``参加学校举办的比赛''。对于这些情况，简单抽取bigram就会产生遗漏。
+\item 倾向于选取包含高频词的短语，易受噪声影响。一个bigram，不一定构成一个常用短语，有可能仅仅是随机出现在一起。虽然我们用频度滤除一部分噪声，但高频词会更多地和其他词随机共同出现，依据频度的过滤方法会倾向于选择高频词的词组，无法将这种情况区分出来。
 \end{itemize}
 
 对于问题一，我们使用一个中文停用词词典，包含1220个停用词，对抽取结果进行过滤。对于问题二，我们的目标在于抽取常见的动词短语，而并不关注句法的精确解析，因此不需要很高的召回率，我们根据词性标签和词本身设计一些抽取规则，可以处理简单的包含数词、量词的情况。
 
-对于问题三，一方面，一个短语应该出现足够多的次数，否则，它更有可能是随机噪声；另一方面，如果我们把词$w_i$是否出现作为随机变量$x_i$, 那么，如果$<w_i, w_j>$构成短语，那么$x_i$, $x_j$应该有比较强的相关性。相关性检验可以借助统计中的$\chi^2$检验。令$a=n(<w_i, w_j>), b=n(<w_i, \bar{w_j}), c=n(<\bar{w_i}, w_j), d=n(<\bar{w_i}, \bar{w_j}>), n=a+b+c+d$,如表\ref{table:chi}, $\chi^2$计算如下：
+对于问题三，要识别一个bigram是否构成短语，一方面，它应该出现足够多的次数，否则，它更有可能是随机噪声；另一方面，如果我们把词$w_i$是否出现作为随机变量$x_i$, 那么，如果$<w_i, w_j>$构成短语，那么$x_i$, $x_j$应该有比较强的相关性。相关性检验可以借助统计中的$\chi^2$检验。令$a=n(<w_i, w_j>), b=n(<w_i, \bar{w_j}), c=n(<\bar{w_i}, w_j), d=n(<\bar{w_i}, \bar{w_j}>), n=a+b+c+d$,如表\ref{table:chi}, $\chi^2$计算如下：
 \begin{equation}
 \chi^2 = \frac{n(ad-bc)^2}{(a+b)(c+d)(a+c)(b+d)}
 \label{eqn:chi}
@@ -66,13 +111,13 @@ $sum$ 			& $a+c$	& $b+d$ 		& $n=a+b+c+d$ \\
 \begin{algorithm}
 \caption{Phrase Extraction}
 \label{alg:phrase_extraction}
-\KwIn{已分词的句集$S=\{s_i\}$，规则集合$R={r_i}$ $\lambda$, $K$}
+\KwIn{已分词的句集$S=\{s_i\}$，规则集合$R={r_i}$，频度阈值$\lambda$，结果集大小$K$ }
 \KwOut{短语集合$P = \{p_i\}$}
 
 \ForEach {$s \in S$} {
-    应用每条规则$r_i \in R$, 获得短语列表$P_{s}=[<w_i, w_j>]$。
+    应用每条规则$r_i \in R$, 获得短语列表$P_{s}=[<w_i, w_j>]$\;
     \ForEach {$p=<w_i,w_j> in P$} {
-    	更新$n(<w_i, w_j>), n(w_i), n(w_j)$
+    	更新$n(<w_i, w_j>), n(w_i), n(w_j)$\;
     }
 }
 
@@ -82,66 +127,76 @@ $sum$ 			& $a+c$	& $b+d$ 		& $n=a+b+c+d$ \\
 	依照式\ref{eqn:chi}, 计算$\chi^2(p)$
 }
 
-以$\chi^2(p)$为键值，递减序排序$P$得到$P_{sorted}$\\
+以$\chi^2(p)$为键值，以递减序排序$P$得到$P_{sorted}$\\
 
 返回$P_{sorted}$的前$K$个元素
 \end{algorithm}
-最终，我们得到了90000条动词短语，作为活动概念的候选集。
 
-\section{获取语义向量表示}
+最终，我们得到了98520条动词短语，作为活动概念的候选集。
+
+\section{训练语义特征向量表示}
 \label{sec:nnlm}
 \subsection{背景和目标}
-我们已经得到了一系列动词短语，作为活动的候选集合，但其中大多数并不表示一个日常活动，需要将活动概念加以区分。这是一个分类问题，可以使用现有的分类模型，关键在于特征的选取。
+在第\ref{sec:phrase_extraction}节中，我们得到了一系列动词短语，作为活动概念的候选集合，但其中大多数并不表示一个日常活动，需要将活动概念加以区分。这是一个分类问题，可以使用现有的分类模型，关键在于特征的选取。
 
-一种方法是，以词(unigram)作为特征。设共有$|V|$个不同的词，则bigram$<w_i, w_j>$的特征向量是一个$|V|$维向量$(0_1, 0_2,\ldots, 1_i, 0_i+1,\ldots, 1_j, 0_j+1, \ldots, 0_{|V|})$。这样做有效的原因是，动词和名词的数量是有限的，不同的短语可能包含相同的Action和Object，其中带有某些动词的短语，吃、喝，有更高的概率表示活动概念。如果我们进行足够的标注，覆盖足够多的情况，就可以对未知的短语进行分类。这种特征表示方法在计算语言学中称为One-hot Representation. 
-但这样做的问题有
+一种方法是，以unigram作为特征。设共有$|V|$个不同的词，则bigram$<w_i, w_j>$的特征向量是一个$|V|$维向量$(0_1, 0_2,\ldots, 1_i, 0_i+1,\ldots, 1_j, 0_j+1, \ldots, 0_{|V|})$。这样做有效的原因是，不同的短语可能包含相同的动词或名词，其中带有某些动词的短语，吃、喝，更有可能表示一个活动概念。如果我们进行足够的标注，覆盖足够多的情况，就可以对未知的短语进行分类。这种特征表示方法在计算语言学中称为One-hot Representation。
+
+这样做的问题有
 \begin{itemize}
-\item 无法处理单个单词Unigram。One-hot Representation仅当不同短语间存在共同的单词才会有效。
-\item 没有考虑不同词语的语义联系。假如两个词之间语义相似，那么他们的类标有更大的可能相同，而One-hot Representation中，不同单词是独立的。因此需要进行大量的标注，以覆盖尽可能多的样本。
+\item 无法处理单个单词。One-hot Representation仅当不同短语间存在共同的单词才会有效。对于单个单词，除非已进行标注，否则无法获得任何信息。
+\item 没有考虑不同词语的语义联系。假如两个词之间语义相似，那么他们的类标有更大的可能相同，而One-hot Representation中，不同单词是独立的，因此需要进行大量的标注，以覆盖尽可能多的样本。
 \end{itemize}
 在实际测试中，以SVM作为分类模型，可以达到82\%的分类精度，但召回率仅有29\%。为了避免大量的标注工作并提高召回率，我们需要寻找其他特征表示方法，以充分利用两个词之间的语义联系。
 
-对语义相似度的计算，已经有许多方法。例如，基于文本片段中两个词的共现概率\cite{jiang1997semantic}；基于搜索引擎查询结果条目数量\cite{bollegala2007measuring}；将词表示为维基百科中条目的分布并计算余弦相似度\cite{liu2009clustering}。这些方法提供了两个词之间相似度的度量，但使用并不方便。理想的情况是将每个词表示为$K$维空间的向量，K远远小于不同词的总数，词之间的相似度可以计算两个向量的余弦相似度。这Hinton提出的Distributed Representation\cite{hinton1986learning}。本文使用基于神经网络语言模型的工具Word2Vec获得词语的语义向量表示。
+对语义相似度的计算，已经有许多方法。例如，基于文本片段中两个词的共现概率\cite{jiang1997semantic}；基于搜索引擎查询结果条目数量\cite{bollegala2007measuring}；将词表示为维基百科中条目的分布并计算余弦相似度\cite{liu2009clustering}。这些方法提供了两个词之间相似度的度量，但使用并不方便。理想的情况是将每个词表示为$K$维空间的向量，K远远小于不同词的总数，词之间的相似度可以计算两个向量的余弦相似度。这Hinton提出的Distributed Representation\cite{hinton1986learning}。本文使用基于神经网络语言模型的工具Word2Vec获得词的语义向量表示。
 
 \subsection{神经网络语言模型(NNLM)}
-要对语义进行建模，容易想到的思路是，假如两个词经常出现的上下文相似，那么它们的语义可能也是相似的，这是自然语言处理中了统计语言模型的基础。一个语言模型是语言基本单位（如句子）的生成模型，用各个单词出现的条件概率来表示，即
+我们在此对神经网络语言模型及词的向量表示做简要介绍\cite{bengio2006neural} \cite{mikolov2013efficient}。 要对语言进行建模，容易想到的思路是，假如两个词经常出现的上下文(context)相似，那么它们的语义可能也是相似的，这是自然语言处理中了统计语言模型的基础。一个语言模型是语言基本单位（如句子）的生成模型，用各个单词出现的条件概率来表示，即
 \[
 p(sentence) = \prod\limits_t {p({w_t}|Context_t)}
 \]
-Context的选取不同，语言模型也随之变化，其中n-gram语言模型是其中常用的一种。它对语言的生成做了n-1阶Markov假设，一个词的出现概率仅和前n-1个词相关，即
+上下文的选取不同，语言模型也随之变化，其中n-gram语言模型是其中常用的一种。它对语言的生成做了n-1阶Markov假设，一个词的出现概率仅和前n-1个词相关，即
 \begin{align*}
 Context_t = & w_{t-n+1}^{t-1} \\
 		= & (w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1}) \\
 p(sentence) = & \prod\limits_t {p({w_t}|w_{t-n+1}^{t-1})}
 \end{align*}
 
-n-gram语言模型的问题是，由于语料的限制，高阶的语言模型受制于数据的稀疏性，无法建模更远的关系，一般使用tri-gram。随着互联网带来的海量数据以及计算能力的提升，更高阶的语言模型成为可能，Google曾经公开了5-gram的语言模型，但体积非常大，对我们的应用来说不切实际的。其次，n-gram对语义相似度建模的能力有限。它仅考虑词在给定上下文出现的概率，但对上下文的相似性没有考虑。比如，``房间里趴着一只狗''和``卧室里趴着一只猫'',对``猫''和``狗''建模时，n-gram模型没有考虑``房间''和``卧室''的相似性，而它们的相似性是可以根据其他文本得到的。我们需要找到一种可以将上下文相似性一并考虑的方法模型。
+n-gram语言模型的问题是，由于语料的限制，高阶的语言模型受制于数据的稀疏性，无法建模更远的关系，一般使用三元语法(tri-gram)。随着互联网带来的海量数据以及计算能力的提升，更高阶的语言模型成为可能，Google曾经公开了5-gram的语言模型，但体积非常大，对我们的应用来说不切实际的。其次，n-gram对语义相似度建模的能力有限。它仅考虑词在给定上下文出现的概率，但对上下文的相似性没有考虑。比如，``房间里趴着一只狗''和``卧室里趴着一只猫'',对``猫''和``狗''建模时，n-gram模型没有考虑``房间''和``卧室''的相似性，而它们的相似性是可以根据其他文本得到的。我们需要找到一种可以将上下文相似性一并考虑的方法模型。
 
-换个角度思考，我们要求的是$p({w_t}|w_{t-n+1}^{t-1})$, 实际可以看做是一个函数$f(w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1}, w_t)$. Hornik等人证明了，带有一个隐含层的多层前馈神经网络，可以近似$R^n$上任意连续函数（universal approximation theorem\cite{hornik1991approximation}）. 因此，我们也能用神经网络来逼近$f()$. 我们把$w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1}$的One-hot Representation作为输入，希望输出$output_i=P(w_t=i|w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1})$, 这样就是n-gram语言模型的神经网络近似。如果我们把输入换成每个词对应的K维向量表示，那么上下文的相似性可以自然体现在向量的相似性中，这个模型就是神经网络语言模型（NNLM）\cite{bengio2006neural} \cite{mikolov2013efficient}。与一般神经网络不同的是，它的输入，即每个词的向量表示，是未知的，需要和模型参数一同优化。如图\ref{fig:nnlm}所示，输入为词序列$w_{t-n+1}^{t-1}$，$C(w_i)$为词$w_i$的向量表示，输出经过softmax归一化为词出现的概率。可用随机梯度优化网络参数。由于输出层为softmax，不会出现概率为0的情况，因此不需n-gram模型中复杂的平滑方法，并且可以取得更好的效果。
-
-\begin{align*}
-y = & b+U\tanh(d+Hx)\\
-output_t = & P(w_t|w_{t-n+1}^{t-1}) \\
-		= & \frac{e^{y_i}}{\sum\nolimits_i {{e^{{y_i}}}} }
-\end{align*}
+换个角度思考，我们要求的是$p({w_t}|w_{t-n+1}^{t-1})$, 实际可以看做是一个函数$f(w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1}, w_t)$。 Hornik等人证明了，带有一个隐含层的多层前馈神经网络，可以近似$R^n$上任意连续函数（universal approximation theorem\cite{hornik1991approximation}）. 因此，我们也能用神经网络来逼近$f()$。 我们把$w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1}$的One-hot Representation作为输入，希望输出$output_i=P(w_t=i|w_{t-n+1}, w_{t-n+2}, \ldots, w_{t-1})$, 这样就是n-gram语言模型的神经网络近似。如果我们把输入换成每个词对应的K维向量表示，那么上下文的相似性可以自然体现在向量的相似性中，这个模型就是神经网络语言模型（NNLM）\cite{bengio2006neural} \cite{mikolov2013efficient}。与一般神经网络不同的是，它的输入，即每个词的向量表示，是未知的，需要和模型参数一同优化。如图\ref{fig:nnlm}所示。
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.8\textwidth]{nnlm.png}
+\includegraphics[width=0.6\textwidth]{nnlm.png}
 \caption{神经网络语言模型}
 \label{fig:nnlm}
 \end{figure}
 
-Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进行训练的高效工具。
+此网络输入为词序列$w_{t-n+1}^{t-1}$，$v(w_i)$为词$w_i$的向量表示，输出经过softmax归一化为词出现的概率，如式\ref{eqn:nnlm}。可用随机梯度优化网络参数。由于输出层为softmax，不会出现概率为0的情况，因此不需n-gram模型中复杂的平滑方法，并且可以取得更好的效果。
+
+
+\begin{equation}
+\begin{aligned}
+y = & b+U\tanh(d+Hx)\\
+output_t = & P(w_t|w_{t-n+1}^{t-1}) \\
+		= & \frac{e^{y_i}}{\sum\nolimits_i {{e^{{y_i}}}} }
+\end{aligned}		
+\label{eqn:nnlm}
+\end{equation}
+
+
+Google Word2Vec \footnote{https://code.google.com/p/word2vec}，提供了使用前馈神经网络对神经网络语言模型进行训练的高效工具。
 
 \subsection{案例研究}
-我们在1300万条新浪微博上训练了NNLM,并对得到的向量做一些案例研究,以检验模型的有效性。
+\label{sec:case_study}
+我们在1300万条新浪微博上训练了NNLM，向量维度一般取50到200维，本文取100维。本节将对得到的词向量做案例研究，以检验模型的有效性。
 
-首先，我们给出一个活动，用余弦相似度衡量两个词语义上的相关性，找出和其最相似的10个词组，如表\ref{table:similarity_instances}。可见，根据NNLM得到的向量表示，很好地反映了语义的相似性。
+首先，我们给出一个活动短语，用余弦相似度衡量语义上的相似性，找出和其最相似的10个词组，如表\ref{table:similarity_instances}。可见，根据NNLM得到的向量表示，很好地反映了语义的相似性。
 
 \begin{table}[h]
 \centering
-\begin{subtable}{0.3\textwidth}
+\begin{subtable}{0.25\textwidth}
      \begin{tabular}{|l|c|} 
 	\hline
 	{\heiti 短语} & {\heiti 相似度} \\
@@ -171,7 +226,7 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
 	\end{tabular}
 \end{subtable}
 \hspace{1em}
-\begin{subtable}{0.3\textwidth}
+\begin{subtable}{0.25\textwidth}
 	\begin{tabular}{|l|c|} 
 	\hline
 	{\heiti 短语} & {\heiti 相似度} \\
@@ -200,8 +255,8 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
 	\hline
 	\end{tabular}
 \end{subtable}
-
-\begin{subtable}{0.3\textwidth}
+\hspace{1em}
+\begin{subtable}{0.25\textwidth}
 	\begin{tabular}{|l|c|} 
 	\hline
 	{\heiti 短语} & {\heiti 相似度} \\
@@ -231,46 +286,17 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
 	\end{tabular}
 \end{subtable}
 \hspace{1em}
-\begin{subtable}{0.3\textwidth}
-	\begin{tabular}{|l|c|} 
-	\hline
-	{\heiti 短语} & {\heiti 相似度} \\
-	\hline
-	下班 & - \\
-	\hline
-	上班 & 0.751 \\
-	\hline
-	回家 & 0.748 \\
-	\hline
-	下班\_回家 & 0.730 \\
-	\hline
-	坐\_班车 & 0.716 \\
-	\hline
-	提早\_下班 & 0.706 \\
-	\hline
-	回到\_家 & 0.705 \\
-	\hline
-	十一点\_半 & 0.705 \\
-	\hline
-	五点\_下班 & 0.703 \\
-	\hline
-	吃\_晚饭 & 0.701 \\
-	\hline
-	收工 & 0.698 \\
-	\hline
-	\end{tabular}
-\end{subtable}
 
-\caption{语义相似度实例}
-\label{table:similarity_instance}
+\caption{语义相似度样例}
+\label{table:similarity_instances}
 \end{table}
 
-并且词向量具有可加性.例如, 可以用向量加法来表达语义关系的组合:
+并且词向量具有可加性\cite{mikolov2013efficient}。例如，可以用向量加法来表达语义关系的组合，此处以:
 \begin{align*}
 	v(\text{济南}) - v(\text{山东}) + v(\text{浙江}) \rightarrow & v(\text{杭州}) \\
 	v(\text{北京}) - v(\text{中国}) + v(\text{法国}) \rightarrow & v(\text{巴黎}) \\
 \end{align*}
-这里的$\rightarrow$表示,在所有的词中,约等号右边的词向量与左边运算的结果余弦相似度最大.这两个式子的含义是,杭州对浙江的关系,与济南对山东的关系相似(都是省会); 东京对日本的关系,与北京对中国的关系相似(都是首都).
+这里的$\rightarrow$表示,在所有的词中,约等号右边的词向量与左边运算的结果余弦相似度最大.这两个式子的含义是,杭州对浙江的关系,与济南对山东的关系相似(都是省会); 东京对日本的关系,与北京对中国的关系相似(都是首都)。
 
 再如
 \begin{align*}
@@ -278,22 +304,23 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
 	v(\text{校长}) - v(\text{学校}) + v(\text{公司}) \rightarrow & v(\text{总裁}) \\
 	v(\text{胡锦涛}) - v(\text{中国}) + v(\text{日本}) \rightarrow & v(\text{首相}) \\
 \end{align*}
-这些式子都有很明确自然的语义关系。虽然这种语义组合的关系并不是总能成立，但反映出，词的向量表示在某种层面上反映了词的语义特征。
+这些式子都有很明确自然的语义关系。虽然这种语义组合的关系并不是总能成立，但反映出，词的向量表示在某种层面上反映了词的语义特征。因此，我们使用词的向量表示作为短语特征。对于unigram $w$, 特征向量就是$v(w)$本身；对于bigram $<w_i, w_j>$， 特征向量为$\frac{v(w_i)+v(w_j)}{2}$。
 
-\section{优化训练集选取}
+\section{训练集选取}
 \label{sec:opt_trainset}
-\subsection{目标}
+\subsection{动机与目标}
 在\ref{sec:nnlm}中，我们得到了每个词对应的向量表示。对于unigram, 词向量本身就是短语的向量；对于bigram, 由于向量可加，将动词和名词的向量相加后归一化，如此，每个动词短语可以看做K维语义向量空间中的一个向量，更确切来说，每个向量的模长均为1，它们分布在一个K维超球面上。
 
-在对短语进行分类前，需要手工构建一个标注集，类标``1''表示是活动，``0''表示非活动，作为训练数据训练分类模型，确定模型参数。传统上，训练样本是从待分类数据中随机抽样得到。由于语义空间很大，待分类的数据也比较多，使用随机抽样得到的训练样本训练SVM分类器，精度为69\%, 召回率相对One-hot Representation有所提升，但依然只有43\%。更多的标注可以改善精度和召回率的情况，但大量标注需要耗费很常时间。本文希望根据数据分布的特性，希望设计一种有原则的训练样本选择方法，在标注数据量一定的情况下，能够尽可能提高训练的效果。假设标注集为$L$，我们需要恰当定义其效用函数$Q(L)$以判断它的有效性，并且限制$L$的大小为$M$，找出最优的$L$,也就是
+在对短语进行分类前，需要手工构建一个标注集，类标``1''表示是活动，``0''表示非活动，作为训练数据训练分类模型，确定模型参数。传统上，训练样本是从待分类数据中随机抽样得到。由于语义空间很大，待分类的数据也比较多，使用随机抽样得到的训练样本训练SVM分类器，精度为69\%, 召回率相对One-hot Representation有所提升，但依然只有43\%。更多的标注可以改善精度和召回率的情况，但大量标注需要耗费很常时间。本文希望根据数据分布的特性，希望设计训练样本抽样方法，在标注数据量一定的情况下，能够尽可能提高训练的效果。假设标注集为$L$，我们需要恰当定义其效用函数$Q(L)$以判断它的有效性，并且限制$L$的大小为$M$，找出最优的$L$,也就是
 \[
     L^* = \arg\max_{L,|L| = M} Q(L)
 \]
 
-\subsection{模型概述}
-直觉上，标注一个训练样本后，和此训练样本相似的样本，我们有较高的置信度将其正确分类。例如，在K近邻分类器中，对于每个未知样本，寻找训练集中和其距离最近的K个样本，由这K个近邻投票确定此样本的类标; 在SVM中，若$x_i \sim x_j$，则$wx_i+b \sim wx_j+b$。
+这个问题与Active Learning有相似之处，但Active Learning一般是基于一个已有的分类算法，寻找使分类器性能提高最多的样本。而本节希望找到一种抽样方法，使得抽样出的集合等尽可能全面地代表数据集，独立于特定的分类算法。目标相似，但途径不同。
 
-在我们的问题中，样本间的相似性$sim(x_i, x_j)$使用向量的余弦相似度来表示$<x_i, x_j>=\frac{x_i\dot x_j}{|x_i||x_j|}$，据此可以定义一个样本$x$和集合$S$的相似性。
+通过第\ref{sec:case_study}案例研究，可以发现和一项活动有较高相似度的短语，基本上也是一个活动，从而标注一个训练样本后，和此训练样本相似的样本，我们有较高的概率将其正确分类。例如，在K近邻分类器中，对于每个未知样本，寻找训练集中和其距离最近的K个样本，由这K个近邻投票确定此样本的类标; 在SVM中，若$x_i$与$x_j$相似，则$wx_i+b$与$wx_j+b$也比较相似。
+
+在我们的问题中，样本间的相似性$sim(x_i, x_j)$使用向量的余弦相似度来表示$<x_i, x_j>=\frac{x_i\dot x_j}{|x_i||x_j|}$，据此可以定义一个样本$x$和集合$S$的相似性:
 
 \begin{definition}
 \[
@@ -308,14 +335,15 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
 \]
 意义是，所有样本与$L$的最小相似度。$Q(L)$越大，说明$L$越好地代表了数据集。我们的目标是，限制$L$的大小为$M$，找到最优的标注集$L^*$。问题可以形式定义为：
 
-\begin{problem}\label{prob:opt_problem}
-给定集合$U$， 对任意元素$x_i, x_j \in U$， 有相似度度量$sim(x_i,x_j)$. 元素与集合相似度$sim(x, S)$和效用函数$Q$如前定义。要求最优子集
+\begin{problem}
+\label{prob:opt_problem}
+给定集合$U$， 对任意元素$x_i, x_j \in U$， 有相似度度量$sim(x_i,x_j)$。 元素与集合相似度$sim(x, S)$和效用函数$Q$如前定义。要求最优子集
 \[
         {L^*} = \mathop {\arg \max }\limits_{L \subseteq U, \ |L| = M} Q(L)
 \]
 \end{problem}
 
-\subsection{NP-Hardness}
+\subsection{NP-Hardness证明}
 \label{sec:nph}
 问题\ref{prob:opt_problem}是一个组合优化问题，这类问题通常是NP-Hard的，下面我们将集合覆盖问题可以归约到此问题来证明其NP-Hardness。
 
@@ -345,7 +373,7 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
 \item 集合$U$中的每个元素$x_i, 1 \le i \le N $ 都对应$G$中的一个结点$v_i$，称为元素结点(element nodes)。
 \item 对每个$S_i \in S$, 对应节点$v_{i+N}, 1 \le i \le P$, 称作集合结点(set nodes)。
 \end{itemize}
-边集$E=\{(v_i, v_{j+N}) | v_i \in S_j, 1\le i \le N, 1\le j \le P\} \cup {(v_i+N, v_j+N) | 1 \le i,j \le P}$. 即，每个集合都和它包含的元素连边，集合之间两两连边。所有边赋权为$\theta$，不存在边的赋权负无穷。如图\ref{fig:setcover}所示。
+边集$E=\{(v_i, v_{j+N}) | v_i \in S_j, 1\le i \le N, 1\le j \le P\} \cup {(v_i+N, v_j+N) | 1 \le i,j \le P}$。 即，每个集合都和它包含的元素连边，集合之间两两连边。所有边赋权为$\theta$，不存在边的赋权负无穷。如图\ref{fig:setcover}所示。
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.7\textwidth]{./setcover.png}
@@ -371,7 +399,7 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
 
 首先给出子模函数(submodular function)的定义。
 \begin{definition}[子模函数]
-从幂集$2^\Omega \to R$的一个函数$f$称为子模函数,如果对任意$X,Y \subseteq \Omega, X \subseteq Y$,$\forall x \notin Y$, 有$f(X \cup \{x\} ) - f(X) \geq f(Y \cup \{x\} ) - f(Y)$.
+从幂集$2^\Omega \to R$的一个函数$f$称为子模函数,如果对任意$X,Y \subseteq \Omega, X \subseteq Y$,$\forall x \notin Y$, 有$f(X \cup \{x\} ) - f(X) \geq f(Y \cup \{x\} ) - f(Y)$。
 \end{definition}
 
 下面我们分别证明$Q(L)$的单调性和子模性。单调性是显然的。
@@ -452,25 +480,23 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
   \label{alg:greedy}
 \end{algorithm}
 
-\section{实验结果与优化}
-为了检验我们标注集选取和分类的效果，我们从数据集中随机抽取了5000个短语进行标注，作为Ground Truth验证我们的方法。
+\section{模型训练与实验结果}
+为了检验我们标注集选取和分类的效果，我们从数据集中随机抽取了5000个短语进行标注，作为客观事实(Ground Truth)检验我们的方法。
 
-首先，我们使用随机抽样(Random)和最大化$Q(L)$(MaxSim)的两种训练集选取方法分别抽取500、1000、2000个训练样本，训练一个SVM分类器，在剩余测试数据中的表现。
+首先，我们使用随机抽样(Random)和通过最大化$Q(L)$(MaxSim)的两种训练集选取方法分别抽取500、1000、2000个训练样本，训练SVM分类器，在剩余测试数据中的表现。
 对于随机抽样，进行了5次试验，记录每次试验的结果，并标记最大值、最小值、平均值。
 
 \begin{figure}[h!]
   \centering
-  \begin{subfigure}{0.4\textwidth}
+  \begin{subfigure}{0.3\textwidth}
     \includegraphics[width=\textwidth]{label_precision.png}
     \caption{Precision}
   \end{subfigure} 
-  
-  \begin{subfigure}{0.4\textwidth}
+  \begin{subfigure}{0.3\textwidth}
     \includegraphics[width=\textwidth]{label_recall.png}
     \caption{Recall}
   \end{subfigure}
-
-  \begin{subfigure}{0.4\textwidth}
+  \begin{subfigure}{0.3\textwidth}
   	\includegraphics[width=\textwidth]{label_f1.png}
   	\caption{F1-score}
   \end{subfigure}
@@ -478,28 +504,24 @@ Google Word2Vec提供了使用前馈神经网络对神经网络语言模型进�
   \label{fig:testing_vs_random}
 \end{figure}
 
-图\ref{fig:testing_vs_random}中发现，我们在节\ref{sec:opt_trainset}中提出的训练集选取算法，在Recall和Precision方面，都稳定的高于随机随机抽样，尤其是在标注量较小时，MaxSim选取的标注集在Recall方面的优势更加明显(61\%,52\%）。
+图\ref{fig:testing_vs_random}中发现，我们在节\ref{sec:opt_trainset}中提出的训练集选取算法，在Recall和Precision方面，都稳定的高于随机随机抽样，尤其是在标注量较小时，MaxSim选取的标注集在Recall方面的优势更加明显(61\%对52\%）。
 
 对结果进行错误分析，我们发现，有些相似度高的词，类标并不相同，如``天亮''和``起床''，``开场''和``看演出''。为了解决这一问题，我们引入了其他特征帮助分类。
 \begin{itemize}
 \item 签到信息。
 \item 时间词，如``今天''，``上午'',``晚上''等。
 \item 同一句子中是否出现人称代词。
-\item 词的时间分布。
+\item 短语的时间分布。
 \end{itemize}
 加入这些特征后，我们的抽取方法得到了更好的结果，如表\ref{table:concept}。最终，我们从微博中抽取出13470个活动概念。
 
 \begin{table}
 \centering
-\begin{tabular}{|c|c|}
+\begin{tabular}{|c|c|c|c|c}
 \hline
-Accuracy & 85.1\% \\
+ & Accuracy & Precision & Recall & F1 score \\
 \hline
-Precison & 85.6\% \\
-\hline
-Recall & 81.3\% \\
-\hline
-F1 & 0.834 \\
+结果 & 85.1\% & 85.6\% & 81.3\% & 0.834\% \\
 \hline
 \end{tabular}
 \caption{概念抽取实验结果}
@@ -507,5 +529,5 @@ F1 & 0.834 \\
 \end{table}
 
 \section{本章小结}
-本章着力解决活动概念抽取问题。从候选集抽取、语义向量获取、测试集选取、模型选择到最后的分类，得到了较好的分类精度。方法的核心在于通过神经网络语言模型训练词的向量表示，把语义相似度的计算简化为计算余弦相似度。在此基础上提出的基于最优化效用函数的训练集选取方法，使得以较小的标注成本获取更好的分类效果。时间、地理信息特征的引入，进一步提高了分类精度。
+本章着力解决活动概念抽取问题。从候选集抽取、语义向量获取、测试集选取、模型选择到最后的分类，得到了较好的分类精度。方法的核心在于通过神经网络语言模型训练词的向量表示，把语义相似度的计算简化为计算余弦相似度。在此基础上提出的基于最优化效用函数的训练集选取方法，使得以较小的标注成本获取更好的分类效果。时间、地理信息特征的引入，进一步提高了分类精度，取得了较好的结果。
 
