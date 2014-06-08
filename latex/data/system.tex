@@ -1,7 +1,7 @@
 \chapter{ActivityNet系统设计}
 
 \section{设计目标}
-通过之前的工作，本文从社交媒体中抽取了活动概念、地点、情感等属性，并挖掘了活动间的相关性和序列信息。基于这些工作，本文构建了一个可视化系统ActivityNet。系统希望实现以下目标：
+通过之前的工作，本文从社交媒体中抽取了活动概念、地点、情感等属性，并挖掘了活动间的相关性和序列信息。基于这些结果，本文构建了一个可视化系统ActivityNet。系统希望实现以下目标：
 \begin{itemize}
 \item 高效的活动检索
 \item 良好的可视化界面
@@ -9,7 +9,7 @@
 \end{itemize}
 
 \section{底层架构}
-考虑到系统将来的可扩展性，我们选择SAE作为系统底层架构。SAE全称为Social Analytic Engine，即社交网络分析引擎，是清华大学计算机系KEG研究组开发的一套社交网络分析平台,架构图见图\ref{fig:sae_arch},提供了以下功能：
+为了系统的高效性，我们选择SAE作为系统底层架构。SAE全称为Social Analytic Engine，即社交网络分析引擎，是清华大学计算机系KEG研究组开发的一套社交网络分析平台,架构图见图\ref{fig:sae_arch},提供了以下功能：
 \begin{enumerate}
 \item 存储和快速检索极大规模社交网络的数据
 \item 提供最新的社交网络分析算法和机器学习算法，如话题模型（Topic Model）, 影响力最大化模型（Influence Maximization）等
